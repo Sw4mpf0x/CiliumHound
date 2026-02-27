@@ -237,7 +237,7 @@ def extract_keys_from_spec(spec: Dict[str, Any], direction: str, debug: bool = F
         if debug:
             print(f"    [DEBUG] Found toPorts: {spec['toPorts']}")
         port_info = extract_port_info_from_toPorts(spec['toPorts'], debug=debug)
-        for key in keys:
+        for key, _ in key_metadata.items():
             if not key.startswith("namespace:"):
                 key_metadata[key] = port_info
 
@@ -249,7 +249,7 @@ def extract_keys_from_spec(spec: Dict[str, Any], direction: str, debug: bool = F
                 if meta.get('ports') or meta.get('dns_rules'):
                     print(f"    [DEBUG]   {key}: ports={meta.get('ports')}, dns_rules={meta.get('dns_rules')}")
     
-    return keys, key_metadata, and_edges
+    return key_metadata, and_edges
 
 
 def parse_policy_file(filepath: str, debug: bool = False) -> Optional[Dict[str, Any]]:
