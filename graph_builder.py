@@ -27,6 +27,8 @@ def create_metadata_string(metadata: Dict[str, Any]) -> Tuple[str, str]:
 def create_bloodhound_graph(
     namespace_egress_keys: Dict[str, Set[str]],
     namespace_ingress_keys: Dict[str, Set[str]],
+    namespace_egress_deny_keys: Dict[str, Set[str]],
+    namespace_ingress_deny_keys: Dict[str, Set[str]],
     key_metadata: Dict[str, Dict[str, Any]] = None,
     and_edges: set = None,
     debug: bool = False
@@ -42,6 +44,10 @@ def create_bloodhound_graph(
     for keys in namespace_egress_keys.values():
         all_keys.update(keys)
     for keys in namespace_ingress_keys.values():
+        all_keys.update(keys)
+    for keys in namespace_egress_deny_keys.values():
+        all_keys.update(keys)
+    for keys in namespace_ingress_deny_keys.values():
         all_keys.update(keys)
     
     print(f"  Total unique namespaces: {len(all_namespaces)}")
@@ -206,6 +212,49 @@ def create_bloodhound_graph(
                 print(f"    [DEBUG] Created Ingress edge: {key_id} -> {namespace_id}")
     if debug:
         print(f"  [DEBUG] Created {ingress_count} Ingress edges")
+
+    # Create Egress Deny edges: namespace -> key
+    if debug:
+        print(f"  [DEBUG] Creating Egress Deny edges...")
+    egress_deny_count = 0
+    for namespace, keys in namespace_egress_deny_keys.items():
+        print(keys)
+        print(namespace)
+        print(namespace_nodes)
+        namespace_id = namespace_nodes[namespace]
+        for key in keys:
+            key_id = key_nodes[key]
+            edge = Edge(
+                start_node=namespace_id,
+                end_node=key_id,
+                kind="EgressDeny"
+            )
+            graph.add_edge(edge)
+            egress_deny_count += 1
+            if debug:
+                print(f"    [DEBUG] Created Egress Deny edge: {namespace_id} -> {key_id}")
+    if debug:
+        print(f"  [DEBUG] Created {egress_deny_count} Egress Deny edges")
+
+    # Create Ingress Deny edges: key -> namespace
+    if debug:
+        print(f"  [DEBUG] Creating Ingress Deny edges...")
+    ingress_deny_count = 0
+    for namespace, keys in namespace_ingress_deny_keys.items():
+        namespace_id = namespace_nodes[namespace]
+        for key in keys:
+            key_id = key_nodes[key]
+            edge = Edge(
+                start_node=key_id,
+                end_node=namespace_id,
+                kind="IngressDeny"
+            )
+            graph.add_edge(edge)
+            ingress_deny_count += 1
+            if debug:
+                print(f"    [DEBUG] Created Ingress Deny edge: {key_id} -> {namespace_id}")
+    if debug:
+        print(f"  [DEBUG] Created {ingress_deny_count} Ingress Deny edges")
 
     # Create And edges
     if debug:
