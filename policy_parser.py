@@ -179,8 +179,10 @@ class PolicyParser:
         for endpoint in spec['toEndpoints']:
             if 'matchLabels' in endpoint:
                 self._process_labels(endpoint['matchLabels'], keys, and_edges)
+            if 'matchExpressions' in endpoint:
+                self._process_match_expressions(endpoint['matchExpressions'], keys, and_edges)
 
-    def _extract_from_endpoints(self, spec: Dict[str, Any], keys: Set[str]) -> None:
+    def _extract_from_endpoints(self, spec: Dict[str, Any], keys: Set[str], and_edges: Set[Tuple[str, ...]]) -> None:
         """Extract fromEndpoints keys from spec"""
         if 'fromEndpoints' not in spec:
             return
@@ -189,7 +191,23 @@ class PolicyParser:
             print(f"    [DEBUG] Found fromEndpoints: {spec['fromEndpoints']}")
         for endpoint in spec['fromEndpoints']:
             if 'matchLabels' in endpoint:
-                self._process_from_endpoint_labels(endpoint['matchLabels'], keys)
+                self._process_labels(endpoint['matchLabels'], keys, and_edges)
+            if 'matchExpressions' in endpoint:
+                self._process_match_expressions(endpoint['matchExpressions'], keys, and_edges)
+
+    def _process_match_expressions(self, match_expressions: List[Dict[str, Any]], keys: Set[str], and_edges: Set[Tuple[str, ...]]) -> None:
+        """Process matchExpressions and extract keys"""
+        if self.debug:
+            print(f"      [DEBUG] Processing matchExpressions: {match_expressions}")
+        and_edges_list = []
+        for match_expression in match_expressions:
+            key = f"label:expr:\"{match_expression['key']}\"-({match_expression['operator']})"
+            if match_expression.get('values'):
+                key += f"-{str(match_expression.get('values'))}"
+            self._add_key(key, keys)
+            and_edges_list.append(key)
+        if len(and_edges_list) > 1:
+            and_edges.add(tuple(and_edges_list))
 
     def _extract_services(self, spec: Dict[str, Any], keys: Set[str]) -> None:
         """Extract toServices keys from spec"""
