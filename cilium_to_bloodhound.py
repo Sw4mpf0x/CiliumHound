@@ -134,7 +134,7 @@ def process_policy_file(yaml_file: Path, namespace_egress_keys: Dict[str, Set[st
         return
     
     if debug:
-        print(f"  [DEBUG] Using namespace: {namespace}")
+        print(f"  [DEBUG] Processing policy: {policy_name} in namespace: {namespace}")
     
     # Check for specs
     specs = []
@@ -216,7 +216,7 @@ def process_policies(path: str, debug: bool = False) -> Tuple[Dict[str, Set[str]
         print(f"Found {len(yaml_files)} YAML files in {path}")
         if debug:
             for yf in yaml_files:
-                print(f"  [DEBUG]   - {yf}")
+                print(f"  [DEBUG]  File Found: {yf}")
     else:
         print(f"Error: {path} is not a valid file or directory")
         return namespace_egress_keys, namespace_ingress_keys, namespace_egress_deny_keys, namespace_ingress_deny_keys, dict(key_metadata), and_edges
@@ -227,6 +227,8 @@ def process_policies(path: str, debug: bool = False) -> Tuple[Dict[str, Set[str]
     
     # Process each file
     for yaml_file in yaml_files:
+        if debug:
+            print(f"  [DEBUG] Processing policy file: {yaml_file}")
         process_policy_file(yaml_file, namespace_egress_keys, namespace_ingress_keys,
                           namespace_egress_deny_keys, namespace_ingress_deny_keys,
                           key_metadata, and_edges, debug=debug)
