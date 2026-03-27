@@ -7,6 +7,8 @@ YAML files, including namespaces, policy names, ports, and keys.
 
 import os
 import yaml
+import random
+import string
 from typing import Dict, List, Set, Any, Optional, Tuple
 
 
@@ -46,7 +48,6 @@ class PolicyParser:
             self._add_key(key, keys)
     
     def _process_labels(self, labels: Dict[str, str], keys: Set[str], 
-                        and_edges: Set[Tuple[str, ...]], 
                         namespace_key_format: str = "namespace:{value} (byLabel)") -> None:
         """Process matchLabels and extract keys, handling AND relationships"""
         if self.debug:
@@ -60,9 +61,8 @@ class PolicyParser:
                 key = f"label:{k}={v}"
             and_edges_list.append(key)
             self._add_key(key, keys, prefix="")
-            
-        if len(and_edges_list) > 1:
-            and_edges.add(tuple(and_edges_list))
+
+        return and_edges_list
     
     def _process_from_endpoint_labels(self, labels: Dict[str, str], keys: Set[str]) -> None:
         """Process fromEndpoint labels (special handling for namespace)"""
@@ -174,28 +174,49 @@ class PolicyParser:
         if 'toEndpoints' not in spec:
             return
         
+        and_edges_list = []
         if self.debug:
             print(f"    [DEBUG] Found toEndpoints: {spec['toEndpoints']}")
         for endpoint in spec['toEndpoints']:
             if 'matchLabels' in endpoint:
-                self._process_labels(endpoint['matchLabels'], keys, and_edges)
+                and_edges_list.extend( self._process_labels(endpoint['matchLabels'], keys) or [])
             if 'matchExpressions' in endpoint:
-                self._process_match_expressions(endpoint['matchExpressions'], keys, and_edges)
+                and_edges_list.extend(self._process_match_expressions(endpoint['matchExpressions'], keys) or [])
+        if len(and_edges_list) > 1:
+            if self.debug:
+                print(f"    [DEBUG] Found {len(and_edges_list)} AND edges in toEndpoints")
+            policy_id = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+            key = f"and:Egress-And-Junction-{policy_id}"
+            if self.debug:
+                print(f"    [DEBUG] Adding And Junction key: {key}")
+            self._add_key(key, keys)
+            and_edges_list.insert(0, key)
+            and_edges.add(tuple(and_edges_list))
 
     def _extract_from_endpoints(self, spec: Dict[str, Any], keys: Set[str], and_edges: Set[Tuple[str, ...]]) -> None:
         """Extract fromEndpoints keys from spec"""
         if 'fromEndpoints' not in spec:
             return
         
+        and_edges_list = []
         if self.debug:
             print(f"    [DEBUG] Found fromEndpoints: {spec['fromEndpoints']}")
         for endpoint in spec['fromEndpoints']:
             if 'matchLabels' in endpoint:
-                self._process_labels(endpoint['matchLabels'], keys, and_edges)
+                and_edges_list.extend(self._process_labels(endpoint['matchLabels'], keys) or [])
             if 'matchExpressions' in endpoint:
-                self._process_match_expressions(endpoint['matchExpressions'], keys, and_edges)
+                and_edges_list.extend(self._process_match_expressions(endpoint['matchExpressions'], keys) or [])
+        if len(and_edges_list) > 1:
+            policy_id = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+            key = f"and:Ingress-And-Junction-{policy_id}"
+            self._add_key(key, keys)
+            if self.debug:
+                print(f"    [DEBUG] Adding And Junction key: {key}")
+                print(f"    [DEBUG] And edges list: {and_edges_list}")
+            and_edges_list.insert(0, key)
+            and_edges.add(tuple(and_edges_list))
 
-    def _process_match_expressions(self, match_expressions: List[Dict[str, Any]], keys: Set[str], and_edges: Set[Tuple[str, ...]]) -> None:
+    def _process_match_expressions(self, match_expressions: List[Dict[str, Any]], keys: Set[str]) -> Optional[List[str]]:
         """Process matchExpressions and extract keys"""
         if self.debug:
             print(f"      [DEBUG] Processing matchExpressions: {match_expressions}")
@@ -206,8 +227,7 @@ class PolicyParser:
                 key += f"-{str(match_expression.get('values'))}"
             self._add_key(key, keys)
             and_edges_list.append(key)
-        if len(and_edges_list) > 1:
-            and_edges.add(tuple(and_edges_list))
+        return and_edges_list
 
     def _extract_services(self, spec: Dict[str, Any], keys: Set[str]) -> None:
         """Extract toServices keys from spec"""
@@ -269,7 +289,7 @@ class PolicyParser:
         self._extract_to_endpoints(spec, keys, and_edges)
         self._extract_services(spec, keys)
         self._extract_to_entities(spec, keys)
-        self._extract_from_endpoints(spec, keys)
+        self._extract_from_endpoints(spec, keys, and_edges)
         self._extract_from_cidrs(spec, keys)
         self._extract_from_entities(spec, keys)
         

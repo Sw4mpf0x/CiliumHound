@@ -11,6 +11,45 @@ from bhopengraph.Node import Node
 from bhopengraph.Edge import Edge
 from bhopengraph.Properties import Properties
 
+def remove_node_egress_edge(graph: OpenGraph, node_id: str, policy_name: str) -> None:
+    """Remove all Egress edges from a node"""
+    edge_to_remove = ""
+    print(f"    [DEBUG] Locating Egress edge: {node_id} -> {policy_name}")
+    for key, edge in graph.edges.items():
+        if edge.end_node == node_id and edge.kind == "Egress":
+            # If the policy name is exactly the same, remove the edge
+            if edge.get_property('policy_name') == policy_name:
+
+                edge_to_remove = key
+            # If the policy name is a substring, remove the policy name from the edge property
+            elif policy_name in edge.get_property('policy_name'):
+                print(f"    [DEBUG] Removing policy name from edge property: {edge.get_property('policy_name')}")
+                new_policy_name = edge.get_property('policy_name').replace(policy_name, '').strip(",").replace(",,", ",")
+                edge.set_property('policy_name', new_policy_name)
+                break
+    if edge_to_remove:
+        print(f"    [DEBUG] Removing Egress edge: {key} -> {policy_name}")
+        del graph.edges[edge_to_remove]
+
+def remove_node_ingress_edge(graph: OpenGraph, node_id: str, policy_name: str) -> None:
+    """Remove all Ingress edges from a node"""
+    edge_to_remove = ""
+    print(f"    [DEBUG] Locating Ingress edge: {node_id} -> {policy_name}")
+    for key, edge in graph.edges.items():
+        if edge.start_node == node_id and edge.kind == "Ingress":
+            # If the policy name is exactly the same, remove the edge
+            if edge.get_property('policy_name') == policy_name:
+
+                edge_to_remove = key
+            # If the policy name is a substring, remove the policy name from the edge property
+            elif policy_name in edge.get_property('policy_name'):
+                print(f"    [DEBUG] Removing policy name from edge property: {edge.get_property('policy_name')}")
+                new_policy_name = edge.get_property('policy_name').replace(policy_name, '').strip(",").replace(",,", ",")
+                edge.set_property('policy_name', new_policy_name)
+                break
+    if edge_to_remove:
+        print(f"    [DEBUG] Removing Ingress edge: {key} -> {policy_name}")
+        del graph.edges[edge_to_remove]
 
 def create_metadata_string(metadata: Dict[str, Any]) -> Tuple[str, str]:
     """Create readable strings from metadata for ports and DNS rules"""
@@ -116,6 +155,9 @@ def create_bloodhound_graph(
         elif key.startswith("entity:"):
             key_type = "Entity"
             key_name = key[7:]
+        elif key.startswith("and:"):
+            key_type = "And"
+            key_name = key[4:]
         else:
             key_type = "Key"
             key_name = key
@@ -181,10 +223,15 @@ def create_bloodhound_graph(
         namespace_id = namespace_nodes[namespace]
         for key in keys:
             key_id = key_nodes[key]
+            meta = key_metadata.get(key, {})
             edge = Edge(
                 start_node=namespace_id,
                 end_node=key_id,
-                kind="Egress"
+                kind="Egress",
+                properties=Properties(
+                    policy_name=meta.get('policy_name',''),
+                    namespace=meta.get('namespace','')
+                )
             )
             graph.add_edge(edge)
             egress_count += 1
@@ -201,10 +248,15 @@ def create_bloodhound_graph(
         namespace_id = namespace_nodes[namespace]
         for key in keys:
             key_id = key_nodes[key]
+            meta = key_metadata.get(key, {})
             edge = Edge(
                 start_node=key_id,
                 end_node=namespace_id,
-                kind="Ingress"
+                kind="Ingress",
+                properties=Properties(
+                    policy_name=meta.get('policy_name',''),
+                    namespace=meta.get('namespace','')
+                )
             )
             graph.add_edge(edge)
             ingress_count += 1
@@ -224,10 +276,15 @@ def create_bloodhound_graph(
         namespace_id = namespace_nodes[namespace]
         for key in keys:
             key_id = key_nodes[key]
+            meta = key_metadata.get(key, {})
             edge = Edge(
                 start_node=namespace_id,
                 end_node=key_id,
-                kind="EgressDeny"
+                kind="EgressDeny",
+                properties=Properties(
+                    policy_name=meta.get('policy_name',''),
+                    namespace=meta.get('namespace','')
+                )
             )
             graph.add_edge(edge)
             egress_deny_count += 1
@@ -244,10 +301,15 @@ def create_bloodhound_graph(
         namespace_id = namespace_nodes[namespace]
         for key in keys:
             key_id = key_nodes[key]
+            meta = key_metadata.get(key, {})
             edge = Edge(
                 start_node=key_id,
                 end_node=namespace_id,
-                kind="IngressDeny"
+                kind="IngressDeny",
+                properties=Properties(
+                    policy_name=meta.get('policy_name',''),
+                    namespace=meta.get('namespace','')
+                )
             )
             graph.add_edge(edge)
             ingress_deny_count += 1
@@ -264,18 +326,22 @@ def create_bloodhound_graph(
     for and_edge in and_edges:
         if debug:
             print(f"    [DEBUG] Processing And edge tuple: {and_edge}")
-        for idx, key in enumerate(and_edge):
-            if idx < len(and_edge) - 1:
-                if key in key_nodes and and_edge[idx + 1] in key_nodes:
-                    start_node = key_nodes[key]
-                    end_node = key_nodes[and_edge[idx + 1]]
-                    edge = Edge(start_node=start_node, end_node=end_node, kind="And")
-                    graph.add_edge(edge)
-                    and_count += 1
-                    if debug:
-                        print(f"      [DEBUG] Created And edge: {start_node} -> {end_node}")
-                elif debug:
-                    print(f"      [DEBUG] Skipping And edge - key not found: {key} or {and_edge[idx + 1]}")
+            print(f"    [DEBUG] Key nodes: {len(and_edge)}")
+        start_node = key_nodes[and_edge[0]]
+        if debug:
+            print(f"    [DEBUG] Start node: {start_node}")
+        for key in and_edge[1:]:
+            end_node = key_nodes[key]
+            edge = Edge(start_node=start_node, end_node=end_node, kind="And")
+            graph.add_edge(edge)
+            if start_node.startswith("key:and:Egress-And-Junction-"):
+                remove_node_egress_edge(graph, end_node, graph.get_node_by_id(start_node).get_property('policy_name'))
+            elif start_node.startswith("key:and:Ingress-And-Junction-"):
+                remove_node_ingress_edge(graph, end_node, graph.get_node_by_id(start_node).get_property('policy_name'))
+
+            and_count += 1
+            if debug:
+                print(f"      [DEBUG] Created And edge: {start_node} -> {end_node}")
     if debug:
         print(f"  [DEBUG] Created {and_count} And edges")
     
