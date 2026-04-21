@@ -15,6 +15,7 @@ from collections import defaultdict
 
 from graph_builder import create_bloodhound_graph
 from policy_parser import (
+    PolicyParser,
     parse_policy_file,
     extract_namespace_from_filename,
     extract_namespace_from_policy,
@@ -22,76 +23,6 @@ from policy_parser import (
     extract_policy_name_from_policy,
     extract_keys_from_spec
 )
-
-
-def process_rules(rules: List[Dict[str, Any]], rule_type: str, namespace: str, 
-                  policy_name: Optional[str], namespace_keys: Dict[str, Set[str]],
-                  key_metadata: Dict[str, Dict[str, Any]], and_edges: Set[Tuple[str, ...]],
-                  debug: bool = False) -> None:
-    """
-    Process a list of rules (egress/ingress/egressDeny/ingressDeny) and update dictionaries.
-    
-    Args:
-        rules: List of rule dictionaries
-        rule_type: Type of rule ('egress', 'ingress', 'egressDeny', 'ingressDeny')
-        namespace: Namespace name
-        policy_name: Policy name
-        namespace_keys: Dictionary to update with namespace -> keys mapping
-        key_metadata: Dictionary to update with key metadata
-        and_edges: Set to update with AND relationship edges
-        debug: Enable debug output
-    """
-    if debug:
-        print(f"    [DEBUG] Found {len(rules)} {rule_type} rule(s)")
-    
-    for idx, rule in enumerate(rules):
-        if debug:
-            print(f"    [DEBUG] Processing {rule_type} rule {idx + 1}")
-        
-        metadata, new_and_edges = extract_keys_from_spec(rule, rule_type, debug=debug)
-        and_edges.update(new_and_edges)
-        if debug:
-            print(f"    [DEBUG] Extracted {len(metadata)} keys from egress rule {idx + 1}: {list(metadata.keys())}")
-        namespace_keys[namespace].update(metadata.keys())
-
-        # Merge metadata
-        for key, meta in metadata.items():
-            meta = metadata.get(key, {})
-            
-            if key in key_metadata:
-                # Add namespace and policy name to key metadata if not already present
-                if 'policy_name' in key_metadata[key]:
-                    if policy_name and policy_name not in key_metadata[key]['policy_name']:
-                        key_metadata[key]['policy_name'] += f",{policy_name}"
-                else:
-                    key_metadata[key]['policy_name'] = policy_name or ""
-                if 'namespace' in key_metadata[key]:
-                    if namespace not in key_metadata[key]['namespace']:
-                        key_metadata[key]['namespace'] += f",{namespace}"
-                else:
-                    key_metadata[key]['namespace'] = namespace
-                # Merge ports and dns_rules lists
-                # TODO: Make these map to policies
-                if 'ports' not in key_metadata[key]:
-                    key_metadata[key]['ports'] = []
-                if 'dns_rules' not in key_metadata[key]:
-                    key_metadata[key]['dns_rules'] = []
-                key_metadata[key]['ports'].extend(meta.get('ports', []))
-                # Add only unique 'dns_rules' to avoid duplicates
-                new_dns_rules = meta.get('dns_rules', [])
-                for rule_item in new_dns_rules:
-                    if rule_item not in key_metadata[key]['dns_rules']:
-                        key_metadata[key]['dns_rules'].append(rule_item)
-            else:
-                # Create new metadata entry
-                new_meta = meta.copy() if meta else {}
-                new_meta['namespace'] = namespace
-                new_meta['policy_name'] = policy_name or ""
-                if 'ports' not in new_meta:
-                    new_meta['ports'] = []
-                if 'dns_rules' not in new_meta:
-                    new_meta['dns_rules'] = []
-                key_metadata[key] = new_meta
 
 
 def process_policy_file(yaml_file: Path, namespace_egress_keys: Dict[str, Set[str]], 
@@ -153,36 +84,8 @@ def process_policy_file(yaml_file: Path, namespace_egress_keys: Dict[str, Set[st
     # Process spec
     for spec in specs:
         # Process Egress
-        if 'egress' in spec:
-            if debug:
-                print(f"  [DEBUG] Processing Egress rules...")
-            egress_rules = spec['egress'] if isinstance(spec['egress'], list) else [spec['egress']]
-            process_rules(egress_rules, 'egress', namespace, policy_name, 
-                         namespace_egress_keys, key_metadata, and_edges, debug=debug)
-        
-        # Process Ingress
-        if 'ingress' in spec:
-            if debug:
-                print(f"  [DEBUG] Processing Ingress rules...")
-            ingress_rules = spec['ingress'] if isinstance(spec['ingress'], list) else [spec['ingress']]
-            process_rules(ingress_rules, 'ingress', namespace, policy_name,
-                         namespace_ingress_keys, key_metadata, and_edges, debug=debug)
-
-        # Process Egress Deny
-        if 'egressDeny' in spec:
-            if debug:
-                print(f"  [DEBUG] Processing Egress Deny rules...")
-            egress_deny_rules = spec['egressDeny'] if isinstance(spec['egressDeny'], list) else [spec['egressDeny']]
-            process_rules(egress_deny_rules, 'egressDeny', namespace, policy_name,
-                         namespace_egress_deny_keys, key_metadata, and_edges, debug=debug)
-
-        # Process Ingress Deny
-        if 'ingressDeny' in spec:
-            if debug:
-                print(f"  [DEBUG] Processing Ingress Deny rules...")
-            ingress_deny_rules = spec['ingressDeny'] if isinstance(spec['ingressDeny'], list) else [spec['ingressDeny']]
-            process_rules(ingress_deny_rules, 'ingressDeny', namespace, policy_name,
-                         namespace_ingress_deny_keys, key_metadata, and_edges, debug=debug)
+        parser = PolicyParser(debug=debug)
+        parser.process_spec(spec, namespace, policy_name, namespace_egress_keys, namespace_ingress_keys, namespace_egress_deny_keys, namespace_ingress_deny_keys, key_metadata, and_edges)
 
 
 def process_policies(path: str, debug: bool = False) -> Tuple[Dict[str, Set[str]], Dict[str, Set[str]], Dict[str, Set[str]], Dict[str, Set[str]], Dict[str, Dict[str, Any]], Set[Tuple[str, ...]]]:

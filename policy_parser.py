@@ -16,6 +16,9 @@ class PolicyParser:
     """Parser for Cilium Network Policy YAML files"""
     
     NAMESPACE_LABEL_KEY = 'k8s:io.kubernetes.pod.namespace'
+
+    endpoint_selector = ""
+    namespace = ""
     
     def __init__(self, debug: bool = False):
         """Initialize the parser with optional debug mode"""
@@ -264,6 +267,23 @@ class PolicyParser:
         if 'fromEntities' in spec:
             self._add_entity_keys(spec['fromEntities'], keys, "entity")
 
+    def _extract_endpoint_selector(self, spec: Dict[str, Any], policy_name: str, namespace_egress_keys: Dict[str, Set[str]]) -> None:
+        """Extract endpointSelector keys from spec"""
+        if 'endpointSelector' in spec:
+            if self.debug:
+                print(f"    [DEBUG] Found endpointSelector")
+            endpoint_selector_id = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+            endpoint_selector_key = f"endpointSelector:endpointSelector-{endpoint_selector_id}"
+            namespace_egress_keys[self.namespace].add(endpoint_selector_key)
+            self.endpoint_selector = endpoint_selector_key
+            conditions = set()
+            if spec.get('endpointSelector').get('matchLabels'):
+                self._process_labels(spec['endpointSelector']['matchLabels'], conditions)
+            if spec.get('endpointSelector').get('matchExpressions'):
+                self._process_match_expressions(spec['endpointSelector']['matchExpressions'], conditions)
+            print(f"    [DEBUG] Conditions: {conditions}")
+
+
     def extract_keys_from_spec(self, spec: Dict[str, Any], direction: str) -> Tuple[Dict[str, Dict[str, Any]], Set[Tuple[str, ...]]]:
         """
         Extract all keys (FQDNs, endpoints, CIDRs, etc.) from ingress/egress spec
@@ -341,6 +361,116 @@ class PolicyParser:
                 print(f"  [DEBUG] Exception details: {type(e).__name__}: {e}")
         return None
 
+    def process_rules(self, rules: List[Dict[str, Any]], rule_type: str, namespace: str, 
+                  policy_name: Optional[str], namespace_keys: Dict[str, Set[str]],
+                  key_metadata: Dict[str, Dict[str, Any]], and_edges: Set[Tuple[str, ...]],
+                  debug: bool = False) -> None:
+        """
+        Process a list of rules (egress/ingress/egressDeny/ingressDeny) and update dictionaries.
+        
+        Args:
+            rules: List of rule dictionaries
+            rule_type: Type of rule ('egress', 'ingress', 'egressDeny', 'ingressDeny')
+            namespace: Namespace name
+            policy_name: Policy name
+            namespace_keys: Dictionary to update with namespace -> keys mapping
+            key_metadata: Dictionary to update with key metadata
+            and_edges: Set to update with AND relationship edges
+            debug: Enable debug output
+        """
+        if debug:
+            print(f"    [DEBUG] Found {len(rules)} {rule_type} rule(s)")
+        
+        for idx, rule in enumerate(rules):
+            if debug:
+                print(f"    [DEBUG] Processing {rule_type} rule {idx + 1}")
+            
+            metadata, new_and_edges = extract_keys_from_spec(rule, rule_type, debug=debug)
+            and_edges.update(new_and_edges)
+            if debug:
+                print(f"    [DEBUG] Extracted {len(metadata)} keys from egress rule {idx + 1}: {list(metadata.keys())}")
+            namespace_keys[namespace].update(metadata.keys())
+
+            # Merge metadata
+            for key, meta in metadata.items():
+                meta = metadata.get(key, {})
+                
+                if key in key_metadata:
+                    if self.endpoint_selector:
+                        key_metadata[key]['endpointSelector'] = self.endpoint_selector
+                    # Add namespace and policy name to key metadata if not already present
+                    if 'policy_name' in key_metadata[key]:
+                        if policy_name and policy_name not in key_metadata[key]['policy_name']:
+                            key_metadata[key]['policy_name'] += f",{policy_name}"
+                    else:
+                        key_metadata[key]['policy_name'] = policy_name or ""
+                    if 'namespace' in key_metadata[key]:
+                        if namespace not in key_metadata[key]['namespace']:
+                            key_metadata[key]['namespace'] += f",{namespace}"
+                    else:
+                        key_metadata[key]['namespace'] = namespace
+                    # Merge ports and dns_rules lists
+                    # TODO: Make these map to policies
+                    if 'ports' not in key_metadata[key]:
+                        key_metadata[key]['ports'] = []
+                    if 'dns_rules' not in key_metadata[key]:
+                        key_metadata[key]['dns_rules'] = []
+                    key_metadata[key]['ports'].extend(meta.get('ports', []))
+                    # Add only unique 'dns_rules' to avoid duplicates
+                    new_dns_rules = meta.get('dns_rules', [])
+                    for rule_item in new_dns_rules:
+                        if rule_item not in key_metadata[key]['dns_rules']:
+                            key_metadata[key]['dns_rules'].append(rule_item)
+                else:
+                    # Create new metadata entry
+                    new_meta = meta.copy() if meta else {}
+                    new_meta['namespace'] = namespace
+                    new_meta['policy_name'] = policy_name or ""
+                    if 'ports' not in new_meta:
+                        new_meta['ports'] = []
+                    if 'dns_rules' not in new_meta:
+                        new_meta['dns_rules'] = []
+                    key_metadata[key] = new_meta
+
+
+    def process_spec(self, spec: Dict[str, Any], namespace: str, policy_name: str, namespace_egress_keys: Dict[str, Set[str]], namespace_ingress_keys: Dict[str, Set[str]], namespace_egress_deny_keys: Dict[str, Set[str]], namespace_ingress_deny_keys: Dict[str, Set[str]], key_metadata: Dict[str, Dict[str, Any]], and_edges: Set[Tuple[str, ...]], debug: bool = False) -> None:
+        if debug:
+            print(f"  [DEBUG] Spec keys: {spec.keys()}")
+        self.namespace = namespace
+        # TODO: This is working for single nodes egressing. NEed to add this for AND junctions as well as all ingressing nodes
+        # if 'endpointSelector' in spec:
+        #     self._extract_endpoint_selector(spec, policy_name, namespace_egress_keys)
+        if 'egress' in spec:
+            if debug:
+                print(f"  [DEBUG] Processing Egress rules...")
+            egress_rules = spec['egress'] if isinstance(spec['egress'], list) else [spec['egress']]
+            self.process_rules(egress_rules, 'egress', namespace, policy_name, 
+                         namespace_egress_keys, key_metadata, and_edges, debug=debug)
+        
+        # Process Ingress
+        if 'ingress' in spec:
+            if debug:
+                print(f"  [DEBUG] Processing Ingress rules...")
+            ingress_rules = spec['ingress'] if isinstance(spec['ingress'], list) else [spec['ingress']]
+            self.process_rules(ingress_rules, 'ingress', namespace, policy_name,
+                         namespace_ingress_keys, key_metadata, and_edges, debug=debug)
+
+        # Process Egress Deny
+        if 'egressDeny' in spec:
+            if debug:
+                print(f"  [DEBUG] Processing Egress Deny rules...")
+            egress_deny_rules = spec['egressDeny'] if isinstance(spec['egressDeny'], list) else [spec['egressDeny']]
+            self.process_rules(egress_deny_rules, 'egressDeny', namespace, policy_name,
+                         namespace_egress_deny_keys, key_metadata, and_edges, debug=debug)
+
+        # Process Ingress Deny
+        if 'ingressDeny' in spec:
+            if debug:
+                print(f"  [DEBUG] Processing Ingress Deny rules...")
+            ingress_deny_rules = spec['ingressDeny'] if isinstance(spec['ingressDeny'], list) else [spec['ingressDeny']]
+            self.process_rules(ingress_deny_rules, 'ingressDeny', namespace, policy_name,
+                         namespace_ingress_deny_keys, key_metadata, and_edges, debug=debug)
+
 
 # Module-level functions for backward compatibility
 _default_parser = PolicyParser(debug=False)
@@ -386,3 +516,4 @@ def parse_policy_file(filepath: str, debug: bool = False) -> Optional[Dict[str, 
     """Parse a CiliumNetworkPolicy YAML file"""
     parser = PolicyParser(debug=debug)
     return parser.parse_policy_file(filepath)
+
