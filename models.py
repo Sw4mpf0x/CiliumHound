@@ -1,0 +1,60 @@
+from typing import List
+from enum import Enum
+from typing import Dict, Any
+
+class Properties(Enum):
+    ENDPOINT_SELECTOR = "endpointSelector"
+    TO_PORTS = "toPorts"
+    TO_NAMESPACE = "toNamespace"
+
+class EdgeType(Enum):
+    EGRESS = 1
+    INGRESS = 2
+    EGRESS_DENY = 3
+    INGRESS_DENY = 4
+    TO_PORTS = 5
+    IN_NAMESPACE = 6
+    FROM_ENDPOINT = 7
+
+class Ports:
+    ports: List[str]
+    dns_rules: List[str]
+
+    def __init__(self, ports: List[str], dns_rules: List[str]):
+        self.ports = ports
+        self.dns_rules = dns_rules
+
+    def print(self):
+        print(f"Ports: {self.ports}")
+        print(f"DNS Rules: {self.dns_rules}")
+
+class Rule:
+    direction: str
+    namespace: str
+    key: str = None
+    edge_type: EdgeType = None
+    endpoint_selector: str = None
+    to_ports: Ports = None
+    to_namespace: str = None
+    properties: Dict[str, Any]
+
+    def __init__(self, direction: str, namespace: str, key: str, edge_type: EdgeType = None):
+        self.direction = direction
+        self.namespace = namespace
+        self.key = key
+        self.edge_type = edge_type
+        self.properties = {}
+
+    def print(self):
+        print("-" * 80)
+        print(f"Direction: {self.direction}")
+        print(f"Namespace: {self.namespace}")
+        print(f"Key: {self.key}")
+        print(f"Edge Type: {self.edge_type}")
+        print(f"Endpoint Selector: {self.endpoint_selector}")
+        if self.to_ports:
+            self.to_ports.print()
+        print(f"To Namespace: {self.to_namespace}")
+        print(f"Properties: {self.properties}")
+        print("-" * 80)
+    

@@ -10,6 +10,11 @@ from bhopengraph.OpenGraph import OpenGraph
 from bhopengraph.Node import Node
 from bhopengraph.Edge import Edge
 from bhopengraph.Properties import Properties
+from models import Rule, Ports
+
+def get_endpoint_selector(metadata: Dict[str, Any]) -> str:
+    """Get the endpointSelector from a key"""
+    return metadata.get('endpointSelector', None)
 
 def remove_node_egress_edge(graph: OpenGraph, node_id: str, policy_name: str) -> None:
     """Remove all Egress edges from a node"""
@@ -51,25 +56,74 @@ def remove_node_ingress_edge(graph: OpenGraph, node_id: str, policy_name: str) -
         print(f"    [DEBUG] Removing Ingress edge: {key} -> {policy_name}")
         del graph.edges[edge_to_remove]
 
-def create_metadata_string(metadata: Dict[str, Any]) -> Tuple[str, str]:
+def create_metadata_string(ports: Ports) -> Tuple[str, str]:
     """Create readable strings from metadata for ports and DNS rules"""
     port_string, dns_string = "", ""
-    if metadata.get('ports'):
-        ports = metadata.get('ports')
+    if ports.ports:
         # Create a readable port string
-        port_string = ",".join([f"{p.get('port', '')}/{p.get('protocol', '')}" for p in ports if p.get('port') or p.get('protocol')])
-    if metadata.get('dns_rules'):
-        dns_string += f" [dns: {metadata['dns_rules']}]"
+        port_string = ",".join([f"{p.get('port', '')}/{p.get('protocol', '')}" for p in ports.ports if p.get('port') or p.get('protocol')])
+    if ports.dns_rules:
+        dns_string += f" [dns: {ports.dns_rules}]"
     return port_string, dns_string
 
 
+def add_node_with_endpoint_selector(
+    graph: OpenGraph,
+    rule: Rule,
+    namespace_id: str,
+    debug: bool = False,
+) -> bool:
+    """
+    Ensure the endpoint selector node exists and add Egress (selector -> key)
+    and FromPods (namespace -> selector) edges.
+
+    Returns False if the endpoint selector node could not be added; the caller
+    should skip the rest of processing for this rule.
+    """
+    if not graph.get_node_by_id(rule.endpoint_selector):
+        if debug:
+            print(f"    [DEBUG] Creating endpoint selector node: {rule.endpoint_selector}")
+        endpoint_selector_node = Node(
+            id=rule.endpoint_selector,
+            kinds=["EndpointSelector", "Base"],
+            properties=Properties(
+                displayname=rule.endpoint_selector,
+                name=rule.endpoint_selector
+            )
+        )
+        if not graph.add_node(endpoint_selector_node):
+            print(f"    [ERROR] Failed to add endpoint selector node: {rule.endpoint_selector}")
+            return False
+    if debug:
+        print(f"    [DEBUG] Creating {rule.direction.capitalize()} edge from endpointSelector: {rule.endpoint_selector} to {rule.key}")
+    endpoint_selector_edge = Edge(
+        start_node=rule.endpoint_selector,
+        end_node=rule.key,
+        kind=rule.direction.capitalize(),
+        properties=Properties(
+            policy_name=rule.policy_name,
+            namespace=rule.namespace
+        )
+    )
+    if not graph.add_edge(endpoint_selector_edge):
+        print(f"    [ERROR] Failed to add {rule.direction.capitalize()} edge: {rule.endpoint_selector} -> {rule.key}")
+    namespace_edge = Edge(
+        start_node=namespace_id,
+        end_node=rule.endpoint_selector,
+        kind="FromPods",
+        properties=Properties(
+            policy_name=rule.policy_name,
+            namespace=rule.namespace
+        )
+    )
+    if not graph.add_edge(namespace_edge):
+        print(f"    [ERROR] Failed to add FromPods edge: {namespace_id} -> {rule.endpoint_selector}")
+    return True
+
+
 def create_bloodhound_graph(
-    namespace_egress_keys: Dict[str, Set[str]],
-    namespace_ingress_keys: Dict[str, Set[str]],
-    namespace_egress_deny_keys: Dict[str, Set[str]],
-    namespace_ingress_deny_keys: Dict[str, Set[str]],
-    key_metadata: Dict[str, Dict[str, Any]] = None,
-    and_edges: set = None,
+    rules: Dict[str, Rule],
+    namespaces: Set[str] = set(),
     debug: bool = False
 ) -> OpenGraph:
     """Create a BloodHound OpenGraph from the extracted relationships"""
@@ -77,34 +131,14 @@ def create_bloodhound_graph(
     
     graph = OpenGraph(source_kind="CiliumNetworkPolicy")
     
-    # Collect all unique namespaces and keys
-    all_namespaces = set(namespace_egress_keys.keys()) | set(namespace_ingress_keys.keys())
-    all_keys = set()
-    for keys in namespace_egress_keys.values():
-        all_keys.update(keys)
-    for keys in namespace_ingress_keys.values():
-        all_keys.update(keys)
-    for keys in namespace_egress_deny_keys.values():
-        all_keys.update(keys)
-    for keys in namespace_ingress_deny_keys.values():
-        all_keys.update(keys)
-    
-    print(f"  Total unique namespaces: {len(all_namespaces)}")
-    print(f"  Total unique keys: {len(all_keys)}")
-    if key_metadata:
-        print(f"  Keys with metadata: {len([k for k in all_keys if k in key_metadata and (key_metadata[k].get('ports') or key_metadata[k].get('dns_rules'))])}")
-    
-    if key_metadata is None:
-        key_metadata = {}
-    
-    if and_edges is None:
-        and_edges = set()
+    print(f"  Total rules: {len(rules.keys())}")
+    print(f"  Total namespaces: {len(namespaces)}")
     
     # Create namespace nodes
     namespace_nodes = {}
     if debug:
         print(f"  [DEBUG] Creating namespace nodes...")
-    for namespace in all_namespaces:
+    for namespace in namespaces:
         node_id = f"namespace:{namespace}"
         node = Node(
             id=node_id,
@@ -112,237 +146,218 @@ def create_bloodhound_graph(
             properties=Properties(
                 displayname=namespace,
                 name=namespace,
-                objectid=node_id,
                 namespace=namespace
             )
         )
-        graph.add_node(node)
+        if not graph.add_node(node):
+            print(f"    [ERROR] Failed to add namespace node: {node_id}")
         namespace_nodes[namespace] = node_id
         if debug:
             print(f"    [DEBUG] Created namespace node: {node_id}")
     
-    # Create key nodes (FQDNs, CIDRs, endpoints, etc.)
-    key_nodes = {}
+    # Create rule nodes (FQDNs, CIDRs, endpoints, etc.)
+    rule_nodes = {}
     if debug:
-        print(f"  [DEBUG] Creating key nodes...")
-    for key in all_keys:
-        node_id = f"key:{key}"
+        print(f"  [DEBUG] Creating rule nodes...")
+    for rule in rules.values():
+        node_id = f"{rule.key}"
         # Determine key type and name
-        if key.startswith("fqdn:"):
+        if rule.key.startswith("fqdn:"):
             key_type = "FQDN"
-            key_name = key[5:]
-        elif key.startswith("fqdn-pattern:"):
+            key_name = rule.key[5:]
+        elif rule.key.startswith("fqdn-pattern:"):
             key_type = "FQDN-Pattern"
-            key_name = key[13:]
-        elif key.startswith("cidr:"):
+            key_name = rule.key[13:]
+        elif rule.key.startswith("cidr:"):
             key_type = "CIDR"
-            key_name = key[5:]
-        elif key.startswith("cidrSet:"):
+            key_name = rule.key[5:]
+        elif rule.key.startswith("cidrSet:"):
             key_type = "CIDRSet"
-            key_name = key[8:]
-        elif key.startswith("namespace:"):
+            key_name = rule.key[8:]
+        elif rule.key.startswith("namespace:"):
             key_type = "Namespace"
-            key_name = key[10:]
-        elif key.startswith("service:"):
+            key_name = rule.key[10:]
+        elif rule.key.startswith("service:"):
             key_type = "Service"
-            key_name = key[8:]
-        elif key.startswith("app:"):
+            key_name = rule.key[8:]
+        elif rule.key.startswith("app:"):
             key_type = "App"
-            key_name = key[4:]
-        elif key.startswith("label:"):
+            key_name = rule.key[4:]
+        elif rule.key.startswith("label:"):
             key_type = "Label"
-            key_name = key[6:]
-        elif key.startswith("entity:"):
+            key_name = rule.key[6:]
+        elif rule.key.startswith("entity:"):
             key_type = "Entity"
-            key_name = key[7:]
-        elif key.startswith("and:"):
-            key_type = "And"
-            key_name = key[4:]
+            key_name = rule.key[7:]
+        elif rule.key.startswith("endpointSelector:"):
+            key_type = "EndpointSelector"
+            key_name = rule.key[17:]
         else:
             key_type = "Key"
-            key_name = key
+            key_name = rule.key
         
         # Build properties with metadata
         props_dict = {
             'displayname': key_name,
             'name': key_name,
-            'objectid': node_id,
             'key_type': key_type,
-            'full_key': key
+            'full_key': rule.key,
+            'namespace': rule.namespace,
+            'policy_name': rule.policy_name
         }
         
         # Add port information if available
-        meta = key_metadata.get(key, {})
-        
-        if meta:
-            port_string, dns_string = create_metadata_string(meta)
+        if rule.to_ports:
+            port_string, dns_string = create_metadata_string(rule.to_ports)
             props_dict['ports'] = port_string
             props_dict['dns_rules'] = dns_string
-            props_dict['namespace'] = meta.get('namespace', '')
-            props_dict['policy_name'] = meta.get('policy_name', '')
             if dns_string:
                 props_dict['name'] += f" (DNS Rules)"
-        
+
+        if rule.properties.get('rules'):
+            props_dict['rules'] = rule.properties.get('rules')
+
         node = Node(
             id=node_id,
             kinds=[key_type, "Base"],
             properties=Properties(**props_dict)
         )
-        graph.add_node(node)
-        key_nodes[key] = node_id
+        if not graph.add_node(node):
+            print(f"    [ERROR] Failed to add rule node: {node_id}")
+        rule_nodes[rule.key] = node_id
 
-        ports = meta.get('ports', [])
-        if ports:
-            for port in ports:
-                port_node = Node(
-                    id=f"Key:{port['port']}/{port['protocol']}",
-                    kinds=["Port", "Base"],
+        # If ports exist, create port nodes and edges
+        to_ports_ids = []
+        if rule.to_ports:
+            ports = rule.to_ports.ports
+            if ports and len(ports) > 0:
+                for port in ports:
+                    port_node = Node(
+                        id=f"Key:{port['port']}/{port['protocol']}",
+                        kinds=["Port", "Base"],
+                        properties=Properties(
+                            displayname=f"{port['port']}/{port['protocol']}",
+                            name=f"{port['port']}/{port['protocol']}"
+                        )
+                    )
+                    # Add port node to rule nodes
+                    rule_nodes[f"{port['port']}/{port['protocol']}"] = port_node.id
+                    graph.add_node(port_node)
+                    to_ports_ids.append(port_node.id)
+                    edge = Edge(
+                        start_node=node_id,
+                        end_node=port_node.id,
+                        kind="ToPorts"
+                    )
+                    if not graph.add_edge(edge):
+                        print(f"    [ERROR] Failed to add edge: {node_id} -> {port_node.id}")
+
+        if rule.to_namespace:
+            to_namespace_id = namespace_nodes[rule.to_namespace]
+            edge = Edge(
+                start_node=node_id,
+                end_node=to_namespace_id,
+                kind="ToNamespace"
+            )
+            if not graph.add_edge(edge):
+                print(f"    [ERROR] Failed to add edge: {node_id} -> {to_namespace_id}")
+        if debug:
+            print(f"    [DEBUG] Created rule node: {node_id} (type: {key_type}, name: {key_name})")
+    
+        if rule.direction == "egress":
+            # Create Egress edges: namespace -> key or endpointSelector -> key
+            if debug:
+                print(f"  [DEBUG] Creating Egress edge from namespace: {rule.namespace} to {rule.key}")
+
+            namespace_id = namespace_nodes[rule.namespace]
+
+            if rule.endpoint_selector:
+                add_node_with_endpoint_selector(graph, rule, namespace_id, debug=debug)
+            else:
+                if debug:
+                    print(f"    [DEBUG] Creating Egress edge from namespace: {namespace_id} to {rule.key}")
+                namespace_edge = Edge(
+                    start_node=namespace_id,
+                    end_node=rule.key,
+                    kind="Egress",
                     properties=Properties(
-                        displayname=f"{port['port']}/{port['protocol']}",
-                        name=f"{port['port']}/{port['protocol']}",
-                        objectid=f"Key:{port['port']}/{port['protocol']}"
+                        policy_name=rule.policy_name,
+                        namespace=rule.namespace
                     )
                 )
-                # Add port node to key nodes
-                key_nodes[f"{port['port']}/{port['protocol']}"] = port_node.id
-                graph.add_node(port_node)
+                if not graph.add_edge(namespace_edge):
+                    print(f"    [ERROR] Failed to add Egress edge: {namespace_id} -> {rule.key}")
+            if debug:
+                print(f"    [DEBUG] Created Egress edge: {namespace_id} -> {rule.key}")
+
+        if rule.direction == "ingress":
+            # Create Ingress edges: key -> namespace
+            if debug:
+                print(f"    [DEBUG] Creating Ingress edge from key: {rule.key} to namespace: {rule.namespace}")
+            namespace_id = namespace_nodes[rule.namespace]
+
+            if rule.endpoint_selector:
+                add_node_with_endpoint_selector(graph, rule, namespace_id, debug=debug)
+            else:
                 edge = Edge(
-                    start_node=node_id,
-                    end_node=port_node.id,
-                    kind="ToPorts"
+                    start_node=rule.key,
+                    end_node=namespace_id,
+                    kind="Ingress",
+                    properties=Properties(
+                        policy_name=rule.policy_name,
+                        namespace=rule.namespace
+                    )
                 )
-                graph.add_edge(edge)
-        if debug:
-            print(f"    [DEBUG] Created key node: {node_id} (type: {key_type}, name: {key_name})")
-    
-    # Create Egress edges: namespace -> key
-    if debug:
-        print(f"  [DEBUG] Creating Egress edges...")
-    egress_count = 0
-    for namespace, keys in namespace_egress_keys.items():
-        namespace_id = namespace_nodes[namespace]
-        for key in keys:
-            key_id = key_nodes[key]
-            meta = key_metadata.get(key, {})
-            edge = Edge(
-                start_node=namespace_id,
-                end_node=key_id,
-                kind="Egress",
-                properties=Properties(
-                    policy_name=meta.get('policy_name',''),
-                    namespace=meta.get('namespace','')
-                )
-            )
-            graph.add_edge(edge)
-            egress_count += 1
+                if not graph.add_edge(edge):
+                    print(f"    [ERROR] Failed to add Ingress edge: {rule.key} -> {namespace_id}")
             if debug:
-                print(f"    [DEBUG] Created Egress edge: {namespace_id} -> {key_id}")
-    if debug:
-        print(f"  [DEBUG] Created {egress_count} Egress edges")
-    
-    # Create Ingress edges: key -> namespace
-    if debug:
-        print(f"  [DEBUG] Creating Ingress edges...")
-    ingress_count = 0
-    for namespace, keys in namespace_ingress_keys.items():
-        namespace_id = namespace_nodes[namespace]
-        for key in keys:
-            key_id = key_nodes[key]
-            meta = key_metadata.get(key, {})
-            edge = Edge(
-                start_node=key_id,
-                end_node=namespace_id,
-                kind="Ingress",
-                properties=Properties(
-                    policy_name=meta.get('policy_name',''),
-                    namespace=meta.get('namespace','')
-                )
-            )
-            graph.add_edge(edge)
-            ingress_count += 1
-            if debug:
-                print(f"    [DEBUG] Created Ingress edge: {key_id} -> {namespace_id}")
-    if debug:
-        print(f"  [DEBUG] Created {ingress_count} Ingress edges")
+                print(f"    [DEBUG] Created Ingress edge: {rule.key} -> {namespace_id}")
 
-    # Create Egress Deny edges: namespace -> key
-    if debug:
-        print(f"  [DEBUG] Creating Egress Deny edges...")
-    egress_deny_count = 0
-    for namespace, keys in namespace_egress_deny_keys.items():
-        print(keys)
-        print(namespace)
-        print(namespace_nodes)
-        namespace_id = namespace_nodes[namespace]
-        for key in keys:
-            key_id = key_nodes[key]
-            meta = key_metadata.get(key, {})
-            edge = Edge(
-                start_node=namespace_id,
-                end_node=key_id,
-                kind="EgressDeny",
-                properties=Properties(
-                    policy_name=meta.get('policy_name',''),
-                    namespace=meta.get('namespace','')
+        # Create Egress Deny edges: namespace -> key
+        if rule.direction == "egressDeny":
+            if debug:
+                print(f"  [DEBUG] Creating Egress Deny edge from namespace: {namespace_id} to {rule.key}")
+            namespace_id = namespace_nodes[rule.namespace]
+
+            if rule.endpoint_selector:
+                add_node_with_endpoint_selector(graph, rule, namespace_id, debug=debug)
+            else:
+                edge = Edge(
+                    start_node=namespace_id,
+                    end_node=rule.key,
+                    kind="EgressDeny",
+                    properties=Properties(
+                        policy_name=rule.policy_name,
+                        namespace=rule.namespace
+                    )
                 )
-            )
-            graph.add_edge(edge)
-            egress_deny_count += 1
+                if not graph.add_edge(edge):
+                    print(f"    [ERROR] Failed to add Egress Deny edge: {namespace_id} -> {rule.key}")
             if debug:
-                print(f"    [DEBUG] Created Egress Deny edge: {namespace_id} -> {key_id}")
-    if debug:
-        print(f"  [DEBUG] Created {egress_deny_count} Egress Deny edges")
+                print(f"    [DEBUG] Created Egress Deny edge: {namespace_id} -> {rule.key}")
 
-    # Create Ingress Deny edges: key -> namespace
-    if debug:
-        print(f"  [DEBUG] Creating Ingress Deny edges...")
-    ingress_deny_count = 0
-    for namespace, keys in namespace_ingress_deny_keys.items():
-        namespace_id = namespace_nodes[namespace]
-        for key in keys:
-            key_id = key_nodes[key]
-            meta = key_metadata.get(key, {})
-            edge = Edge(
-                start_node=key_id,
-                end_node=namespace_id,
-                kind="IngressDeny",
-                properties=Properties(
-                    policy_name=meta.get('policy_name',''),
-                    namespace=meta.get('namespace','')
+        # Create Ingress Deny edges: key -> namespace
+        if rule.direction == "ingressDeny":
+            if debug:
+                print(f"  [DEBUG] Creating Ingress Deny edge from key: {rule.key} to namespace: {rule.namespace}")
+
+            namespace_id = namespace_nodes[rule.namespace]
+
+            if rule.endpoint_selector:
+                add_node_with_endpoint_selector(graph, rule, namespace_id, debug=debug)
+            else:
+                edge = Edge(
+                    start_node=rule.key,
+                        end_node=namespace_id,
+                        kind="IngressDeny",
+                        properties=Properties(
+                            policy_name=rule.policy_name,
+                            namespace=rule.namespace
+                        )
                 )
-            )
-            graph.add_edge(edge)
-            ingress_deny_count += 1
+                if not graph.add_edge(edge):
+                    print(f"    [ERROR] Failed to add Ingress Deny edge: {rule.key} -> {namespace_id}")
             if debug:
-                print(f"    [DEBUG] Created Ingress Deny edge: {key_id} -> {namespace_id}")
-    if debug:
-        print(f"  [DEBUG] Created {ingress_deny_count} Ingress Deny edges")
-
-    # Create And edges
-    if debug:
-        print(f"  [DEBUG] Creating And edges...")
-    
-    and_count = 0
-    for and_edge in and_edges:
-        if debug:
-            print(f"    [DEBUG] Processing And edge tuple: {and_edge}")
-            print(f"    [DEBUG] Key nodes: {len(and_edge)}")
-        start_node = key_nodes[and_edge[0]]
-        if debug:
-            print(f"    [DEBUG] Start node: {start_node}")
-        for key in and_edge[1:]:
-            end_node = key_nodes[key]
-            edge = Edge(start_node=start_node, end_node=end_node, kind="And")
-            graph.add_edge(edge)
-            if start_node.startswith("key:and:Egress-And-Junction-"):
-                remove_node_egress_edge(graph, end_node, graph.get_node_by_id(start_node).get_property('policy_name'))
-            elif start_node.startswith("key:and:Ingress-And-Junction-"):
-                remove_node_ingress_edge(graph, end_node, graph.get_node_by_id(start_node).get_property('policy_name'))
-
-            and_count += 1
-            if debug:
-                print(f"      [DEBUG] Created And edge: {start_node} -> {end_node}")
-    if debug:
-        print(f"  [DEBUG] Created {and_count} And edges")
+                print(f"    [DEBUG] Created Ingress Deny edge: {rule.key} -> {namespace_id}")
     
     return graph
