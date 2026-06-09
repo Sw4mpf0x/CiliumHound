@@ -10,8 +10,7 @@ import os
 import sys
 import argparse
 from pathlib import Path
-from typing import Dict, List, Set, Any, Optional, Tuple
-from collections import defaultdict
+from typing import Dict
 
 from graph_builder import create_bloodhound_graph
 from models import Rule
