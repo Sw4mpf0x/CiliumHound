@@ -71,7 +71,7 @@ class PolicyParser:
             
             # Otherwise, create a label rule for the label
             if not first_key:
-                first_key = f"{header}:label:{k}={v}"
+                first_key = f"{header}:{k}={v}"
             elif not other_keys:
                 other_keys = f"{k}={v}"
             else:
