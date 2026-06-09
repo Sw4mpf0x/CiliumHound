@@ -252,15 +252,15 @@ def create_bloodhound_graph(
                     if not graph.add_edge(edge):
                         print(f"    [ERROR] Failed to add edge: {node_id} -> {port_node.id}")
 
-        if rule.to_namespace:
-            to_namespace_id = namespace_nodes[rule.to_namespace]
+        if rule.tgt_namespace:
+            tgt_namespace_id = namespace_nodes[rule.tgt_namespace]
             edge = Edge(
                 start_node=node_id,
-                end_node=to_namespace_id,
+                end_node=tgt_namespace_id,
                 kind="ToNamespace"
             )
             if not graph.add_edge(edge):
-                print(f"    [ERROR] Failed to add edge: {node_id} -> {to_namespace_id}")
+                print(f"    [ERROR] Failed to add edge: {node_id} -> {tgt_namespace_id}")
         if debug:
             print(f"    [DEBUG] Created rule node: {node_id} (type: {key_type}, name: {key_name})")
     

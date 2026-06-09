@@ -6,7 +6,7 @@ from typing import Dict, Any
 class Properties(Enum):
     ENDPOINT_SELECTOR = "endpointSelector"
     TO_PORTS = "toPorts"
-    TO_NAMESPACE = "toNamespace"
+    tgt_namespace = "toNamespace"
 
 class EdgeType(Enum):
     EGRESS = 1
@@ -40,7 +40,7 @@ class Rule:
     edge_type: EdgeType = None
     endpoint_selector: str = None
     to_ports: Ports = None
-    to_namespace: str = None
+    tgt_namespace: str = None
     properties: Dict[str, Any]
 
     def __init__(self, direction: str, namespace: str, key: str, edge_type: EdgeType = None):
@@ -59,7 +59,7 @@ class Rule:
         print(f"Endpoint Selector: {self.endpoint_selector}")
         if self.to_ports:
             self.to_ports.print()
-        print(f"To Namespace: {self.to_namespace}")
+        print(f"To Namespace: {self.tgt_namespace}")
         print(f"Properties: {self.properties}")
         print("-" * 80)
     

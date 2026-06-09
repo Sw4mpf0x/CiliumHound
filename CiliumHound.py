@@ -170,7 +170,7 @@ def main():
     # Process policies (handles both file and folder)
     rules = process_policies(args.path, debug=args.debug)
     namespaces = set(rule.namespace for rule in rules.values())
-    namespaces.update(rule.to_namespace for rule in rules.values() if rule.to_namespace)
+    namespaces.update(rule.tgt_namespace for rule in rules.values() if rule.tgt_namespace)
     print(rules)
     if not rules:
         print("Error: No valid policies found or no rules extracted")

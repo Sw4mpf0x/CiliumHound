@@ -59,14 +59,14 @@ class PolicyParser:
             print(f"      [DEBUG] Processing labels: {labels}")
         
         # TODO: This doesn't account for situations where multiple labels are in a single matchLabels entry equating to an AND situation. Right now they all appear as OR with their own node.
-        to_namespace = ""
+        tgt_namespace = ""
         first_key = ""
         other_keys = ""
         label_rules = []
         for k, v in labels.items():
-            # If a namespace label is found, set the to_namespace and continue to the next label. Namespace nodes will be generated separately
+            # If a namespace label is found, set the tgt_namespace and continue to the next label. Namespace nodes will be generated separately
             if k == self.NAMESPACE_LABEL_KEY:
-                to_namespace = namespace_key_format.format(value=labels[k])
+                tgt_namespace = namespace_key_format.format(value=labels[k])
                 continue
             
             # Otherwise, create a label rule for the label
@@ -78,8 +78,8 @@ class PolicyParser:
                 other_keys += f" && {k}={v}"
 
         if not first_key:
-            if to_namespace:
-                first_key = f"{to_namespace}"
+            if tgt_namespace:
+                first_key = f"{tgt_namespace}"
             else:
                 first_key = "empty"
         rule_key = first_key
@@ -88,8 +88,8 @@ class PolicyParser:
         new_rule = Rule(direction, self.namespace, rule_key)
         if other_keys:
             new_rule.properties["rules"] = other_keys
-        if to_namespace:
-            new_rule.to_namespace = to_namespace
+        if tgt_namespace:
+            new_rule.tgt_namespace = tgt_namespace
         rules[new_rule.key] = new_rule
 
         return new_rule.key
@@ -226,14 +226,14 @@ class PolicyParser:
             if match_label_key:
                 print(f"      [DEBUG] Match label key found: {match_label_key}")
             print(f"      [DEBUG] Processing matchExpressions: {match_expressions}")
-        to_namespace = ""
+        tgt_namespace = ""
         match_expression_rules = []
         first_key = ""
         other_keys = ""
         for match_expression in match_expressions:
-            # If a namespace label is found, set the to_namespace and continue to the next match expression. Namespace nodes will be generated separately
+            # If a namespace label is found, set the tgt_namespace and continue to the next match expression. Namespace nodes will be generated separately
             if match_expression['key'] == self.NAMESPACE_LABEL_KEY:
-                to_namespace = namespace_key_format.format(value=match_expression['values'][0])
+                tgt_namespace = namespace_key_format.format(value=match_expression['values'][0])
                 continue
             
             # Otherwise, create a label rule for the match expression
@@ -269,8 +269,8 @@ class PolicyParser:
             new_rule = Rule(direction, self.namespace, rule_key)
             if other_keys:
                 new_rule.properties["rules"] = other_keys
-            if to_namespace:
-                new_rule.to_namespace = to_namespace
+            if tgt_namespace:
+                new_rule.tgt_namespace = tgt_namespace
             rules[new_rule.key] = new_rule
             return new_rule.key
 
