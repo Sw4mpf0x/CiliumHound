@@ -67,6 +67,10 @@ def create_metadata_string(ports: Ports) -> Tuple[str, str]:
     return port_string, dns_string
 
 
+def strip_identifier_suffix(key_name: str) -> str:
+    return key_name[:-9] if len(key_name) > 9 else key_name
+
+
 def add_node_with_endpoint_selector(
     graph: OpenGraph,
     rule: Rule,
@@ -195,11 +199,12 @@ def create_bloodhound_graph(
         else:
             key_type = "Key"
             key_name = rule.key
+        display_key_name = strip_identifier_suffix(key_name)
         
         # Build properties with metadata
         props_dict = {
-            'displayname': key_name,
-            'name': key_name,
+            'displayname': display_key_name,
+            'name': display_key_name,
             'key_type': key_type,
             'full_key': rule.key,
             'namespace': rule.namespace,
