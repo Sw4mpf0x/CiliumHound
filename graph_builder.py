@@ -85,7 +85,7 @@ def add_node_with_endpoint_selector(
             print(f"    [DEBUG] Creating endpoint selector node: {rule.endpoint_selector}")
         endpoint_selector_node = Node(
             id=rule.endpoint_selector,
-            kinds=["EndpointSelector", "Base"],
+            kinds=["EndpointSelector"],
             properties=Properties(
                 displayname=rule.endpoint_selector,
                 name=rule.endpoint_selector
@@ -142,7 +142,7 @@ def create_bloodhound_graph(
         node_id = f"namespace:{namespace}"
         node = Node(
             id=node_id,
-            kinds=["Namespace", "Base"],
+            kinds=["Namespace"],
             properties=Properties(
                 displayname=namespace,
                 name=namespace,
@@ -219,7 +219,7 @@ def create_bloodhound_graph(
 
         node = Node(
             id=node_id,
-            kinds=[key_type, "Base"],
+            kinds=[key_type],
             properties=Properties(**props_dict)
         )
         if not graph.add_node(node):
@@ -234,7 +234,7 @@ def create_bloodhound_graph(
                 for port in ports:
                     port_node = Node(
                         id=f"Key:{port['port']}/{port['protocol']}",
-                        kinds=["Port", "Base"],
+                        kinds=["Port"],
                         properties=Properties(
                             displayname=f"{port['port']}/{port['protocol']}",
                             name=f"{port['port']}/{port['protocol']}"
