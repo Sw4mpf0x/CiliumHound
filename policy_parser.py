@@ -11,7 +11,7 @@ import random
 import string
 from enum import Enum
 from typing import Dict, List, Set, Any, Optional, Tuple
-from models import Rule, Ports
+from models import Rule, Ports, append_key_hash_id
 
 class PolicyParser:
     """Parser for Cilium Network Policy YAML files"""
@@ -42,7 +42,7 @@ class PolicyParser:
                 cidr = cidr_item
             key = f"cidr:{cidr}"
             rule = Rule(direction, self.namespace, key)
-            rules[key] = rule
+            rules[rule.key] = rule
     
     def _add_entity_keys(self, entity_list: List[str], rules: Dict[str, Rule], direction: str) -> None:
         """Extract and add entity keys from a list"""
@@ -51,7 +51,7 @@ class PolicyParser:
         for entity in entity_list:
             key = f"entity:{entity}"
             rule = Rule(direction, self.namespace, key)
-            rules[key] = rule
+            rules[rule.key] = rule
     
     def _process_labels(self, labels: Dict[str, str], rules: Dict[str, Rule], direction: str, header: str = "label", namespace_key_format: str = "namespace:{value} (byLabel)") -> str:
         """Process matchLabels and extract keys, handling AND relationships"""
@@ -82,9 +82,11 @@ class PolicyParser:
                 first_key = f"{to_namespace}"
             else:
                 first_key = "empty"
-        new_rule = Rule(direction, self.namespace, first_key)
+        rule_key = first_key
         if other_keys:
-            new_rule.key += f" (+ OTHER RULES)"
+            rule_key += f" (+ OTHER RULES)"
+        new_rule = Rule(direction, self.namespace, rule_key)
+        if other_keys:
             new_rule.properties["rules"] = other_keys
         if to_namespace:
             new_rule.to_namespace = to_namespace
@@ -165,7 +167,7 @@ class PolicyParser:
                 return
             
             rule = Rule(direction, self.namespace, key)
-            rules[key] = rule
+            rules[rule.key] = rule
 
     def _extract_to_cidrs(self, spec: Dict[str, Any], rules: Dict[str, Rule], direction: str) -> None:
         """Extract toCIDR and toCIDRSet keys from spec"""
@@ -179,7 +181,7 @@ class PolicyParser:
                 cidr = cidr_rule.get('cidr', cidr_rule) if isinstance(cidr_rule, dict) else cidr_rule
                 key = f"cidrSet:{cidr}"
                 rule = Rule(direction, self.namespace, key)
-                rules[key] = rule
+                rules[rule.key] = rule
 
     def _extract_from_cidrs(self, spec: Dict[str, Any], rules: Dict[str, Rule], direction: str) -> None:
         """Extract fromCIDRs rules from spec"""
@@ -193,6 +195,7 @@ class PolicyParser:
         
         if self.debug:
             print(f"    [DEBUG] Found toEndpoints: {spec['toEndpoints']}")
+        match_label_key = ""
         for endpoint in spec['toEndpoints']:
             if 'matchLabels' in endpoint:
                 match_label_key = self._process_labels(endpoint['matchLabels'], rules, direction)
@@ -249,7 +252,10 @@ class PolicyParser:
             if self.debug:
                 print(f"      [DEBUG] Adding match expression to existing rule: {match_label_key}")
             if rules[match_label_key].key.startswith("namespace:"):
-                rules[match_label_key].key = first_key
+                rule = rules.pop(match_label_key)
+                rule.key = append_key_hash_id(first_key, rule.namespace, rule.direction)
+                rules[rule.key] = rule
+                return rule.key
             elif "rules" in rules[match_label_key].properties:
                 rules[match_label_key].properties["rules"] += f" && {first_key} && {other_keys}"
             else:
@@ -257,9 +263,11 @@ class PolicyParser:
             return rules[match_label_key].key
         # Otherwise, create a new rule for the match expression
         else:
-            new_rule = Rule(direction, self.namespace, first_key)
+            rule_key = first_key
             if other_keys:
-                new_rule.key += f" (+ OTHER RULES)"
+                rule_key += f" (+ OTHER RULES)"
+            new_rule = Rule(direction, self.namespace, rule_key)
+            if other_keys:
                 new_rule.properties["rules"] = other_keys
             if to_namespace:
                 new_rule.to_namespace = to_namespace
@@ -282,7 +290,7 @@ class PolicyParser:
                     # TODO: Check if this makes sense in the graph once encountered
                     key = f"service:{namespace}/{service_name}" if namespace else f"service:{service_name}"
                     rule = Rule(direction, self.namespace, key)
-                    rules[key] = rule
+                    rules[rule.key] = rule
             if 'serviceSelector' in service:
                 selector = service['serviceSelector']
                 if 'matchLabels' in selector:

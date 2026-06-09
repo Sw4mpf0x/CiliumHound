@@ -1,3 +1,4 @@
+import hashlib
 from typing import List
 from enum import Enum
 from typing import Dict, Any
@@ -28,6 +29,10 @@ class Ports:
         print(f"Ports: {self.ports}")
         print(f"DNS Rules: {self.dns_rules}")
 
+def append_key_hash_id(key: str, namespace: str, direction: str) -> str:
+    key_hash = hashlib.sha256(f"{namespace}:{direction}".encode("utf-8")).hexdigest()[-8:]
+    return f"{key}-{key_hash}"
+
 class Rule:
     direction: str
     namespace: str
@@ -41,7 +46,7 @@ class Rule:
     def __init__(self, direction: str, namespace: str, key: str, edge_type: EdgeType = None):
         self.direction = direction
         self.namespace = namespace
-        self.key = key
+        self.key = append_key_hash_id(key, namespace, direction)
         self.edge_type = edge_type
         self.properties = {}
 
