@@ -79,7 +79,7 @@ def add_node_with_endpoint_selector(
 ) -> bool:
     """
     Ensure the endpoint selector node exists and add Egress (selector -> key)
-    and FromPods (namespace -> selector) edges.
+    and EndpointsWithSelector (namespace -> selector) edges.
 
     Returns False if the endpoint selector node could not be added; the caller
     should skip the rest of processing for this rule.
@@ -87,12 +87,14 @@ def add_node_with_endpoint_selector(
     if not graph.get_node_by_id(rule.endpoint_selector):
         if debug:
             print(f"    [DEBUG] Creating endpoint selector node: {rule.endpoint_selector}")
+        # Strip id suffix and header prefix
+        display_name = strip_identifier_suffix(rule.endpoint_selector[17:])
         endpoint_selector_node = Node(
             id=rule.endpoint_selector,
             kinds=["EndpointSelector"],
             properties=Properties(
-                displayname=rule.endpoint_selector,
-                name=rule.endpoint_selector
+                displayname=display_name,
+                name=display_name
             )
         )
         if not graph.add_node(endpoint_selector_node):
@@ -120,14 +122,14 @@ def add_node_with_endpoint_selector(
     namespace_edge = Edge(
         start_node=namespace_id,
         end_node=rule.endpoint_selector,
-        kind="FromPods",
+        kind="EndpointsWithSelector",
         properties=Properties(
             policy_name=rule.policy_name,
             namespace=rule.namespace
         )
     )
     if not graph.add_edge(namespace_edge):
-        print(f"    [ERROR] Failed to add FromPods edge: {namespace_id} -> {rule.endpoint_selector}")
+        print(f"    [ERROR] Failed to add EndpointsWithSelector edge: {namespace_id} -> {rule.endpoint_selector}")
     return True
 
 
@@ -286,7 +288,7 @@ def create_bloodhound_graph(
             if not graph.add_edge(edge):
                 print(f"    [ERROR] Failed to add edge: {node_id} -> {tgt_namespace_id}")
         if debug:
-            print(f"    [DEBUG] Created rule node: {node_id} (type: {key_type}, name: {key_name})")
+            print(f"    [DEBUG] Created rule node: {node_id} (type: {key_type}, name: {display_key_name})")
     
         if rule.direction == "egress":
             # Create Egress edges: namespace -> key or endpointSelector -> key
