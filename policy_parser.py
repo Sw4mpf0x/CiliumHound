@@ -214,8 +214,6 @@ class PolicyParser:
         for endpoint in spec['fromEndpoints']:
             if 'matchLabels' in endpoint:
                 match_label_key = self._process_labels(endpoint['matchLabels'], rules, direction)
-                if self.debug:
-                    print(f"      [DEBUG] _extract_from_endpoints: Match label key found: {match_label_key}")
             if 'matchExpressions' in endpoint:
                 match_label_key = self._process_match_expressions(endpoint['matchExpressions'], match_label_key, rules, direction)
         return match_label_key
@@ -243,6 +241,7 @@ class PolicyParser:
             if not first_key:
                 first_key = f"{header}:{key}"
             elif not other_keys:
+                first_key += f" (+ OTHER RULES)"
                 other_keys = key
             else:
                 other_keys += f" && {key}"
@@ -253,7 +252,9 @@ class PolicyParser:
                 print(f"      [DEBUG] Adding match expression to existing rule: {match_label_key}")
             if rules[match_label_key].key.startswith("namespace:"):
                 rule = rules.pop(match_label_key)
+                rule.tgt_namespace = rule.key
                 rule.key = append_key_hash_id(first_key, rule.namespace, rule.direction)
+                rule.properties["rules"] = f"{other_keys}"
                 rules[rule.key] = rule
                 return rule.key
             elif "rules" in rules[match_label_key].properties:
