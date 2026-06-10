@@ -41,7 +41,7 @@ class PolicyParser:
             else:
                 cidr = cidr_item
             key = f"cidr:{cidr}"
-            rule = Rule(direction, self.namespace, key)
+            rule = Rule(direction, self.namespace, key, 'cidr')
             rules[rule.key] = rule
     
     def _add_entity_keys(self, entity_list: List[str], rules: Dict[str, Rule], direction: str) -> None:
@@ -50,7 +50,7 @@ class PolicyParser:
             print(f"    [DEBUG] Found entity: {entity_list}")
         for entity in entity_list:
             key = f"entity:{entity}"
-            rule = Rule(direction, self.namespace, key)
+            rule = Rule(direction, self.namespace, key, 'entity')
             rules[rule.key] = rule
     
     def _process_labels(self, labels: Dict[str, str], rules: Dict[str, Rule], direction: str, header: str = "label", namespace_key_format: str = "namespace:{value} (byLabel)") -> str:
@@ -85,9 +85,10 @@ class PolicyParser:
         rule_key = first_key
         if other_keys:
             rule_key += f" (+ OTHER RULES)"
-        new_rule = Rule(direction, self.namespace, rule_key)
+        new_rule = Rule(direction, self.namespace, rule_key, rule_key.split(":")[0])
         if other_keys:
             new_rule.properties["rules"] = other_keys
+            new_rule.generate_key_identifier()
         if tgt_namespace:
             new_rule.tgt_namespace = tgt_namespace
         rules[new_rule.key] = new_rule
@@ -166,7 +167,7 @@ class PolicyParser:
             else:
                 return
             
-            rule = Rule(direction, self.namespace, key)
+            rule = Rule(direction, self.namespace, key, 'fqdn')
             rules[rule.key] = rule
 
     def _extract_to_cidrs(self, spec: Dict[str, Any], rules: Dict[str, Rule], direction: str) -> None:
@@ -180,7 +181,7 @@ class PolicyParser:
             for cidr_rule in spec['toCIDRSet']:
                 cidr = cidr_rule.get('cidr', cidr_rule) if isinstance(cidr_rule, dict) else cidr_rule
                 key = f"cidrSet:{cidr}"
-                rule = Rule(direction, self.namespace, key)
+                rule = Rule(direction, self.namespace, key, 'cidrSet')
                 rules[rule.key] = rule
 
     def _extract_from_cidrs(self, spec: Dict[str, Any], rules: Dict[str, Rule], direction: str) -> None:
@@ -250,26 +251,32 @@ class PolicyParser:
         if match_label_key and match_label_key in rules:
             if self.debug:
                 print(f"      [DEBUG] Adding match expression to existing rule: {match_label_key}")
-            if rules[match_label_key].key.startswith("namespace:"):
-                rule = rules.pop(match_label_key)
-                rule.tgt_namespace = rule.key
-                rule.key = append_key_hash_id(first_key, rule.namespace, rule.direction)
-                rule.properties["rules"] = f"{other_keys}"
-                rules[rule.key] = rule
-                return rule.key
+            # If the only label was a namespace, replace it with a new rule object
+            if rules[match_label_key].rule_type == "namespace":
+                namespace_rule = rules.pop(match_label_key)
+                properties = {}
+                if other_keys:
+                    properties["rules"] = f"{other_keys}"
+                new_rule = Rule(direction, namespace_rule.namespace, first_key, 'label', properties=properties)
+                new_rule.tgt_namespace = namespace_rule.key
+                rules[new_rule.key] = new_rule
+                return new_rule.key
+            # otherwise, update existing and generate a new identifier
             elif "rules" in rules[match_label_key].properties:
                 rules[match_label_key].properties["rules"] += f" && {first_key} && {other_keys}"
             else:
                 rules[match_label_key].properties["rules"] = f"{first_key} && {other_keys}"
+            rules[match_label_key].generate_key_identifier()
             return rules[match_label_key].key
         # Otherwise, create a new rule for the match expression
         else:
             rule_key = first_key
             if other_keys:
                 rule_key += f" (+ OTHER RULES)"
-            new_rule = Rule(direction, self.namespace, rule_key)
-            if other_keys:
-                new_rule.properties["rules"] = other_keys
+                new_rule = Rule(direction, self.namespace, rule_key, rule_key.split(":")[0], properties={"rules": other_keys})
+            else:
+                new_rule = Rule(direction, self.namespace, rule_key, rule_key.split(":")[0])
+
             if tgt_namespace:
                 new_rule.tgt_namespace = tgt_namespace
             rules[new_rule.key] = new_rule
@@ -290,7 +297,7 @@ class PolicyParser:
                 if service_name:
                     # TODO: Check if this makes sense in the graph once encountered
                     key = f"service:{namespace}/{service_name}" if namespace else f"service:{service_name}"
-                    rule = Rule(direction, self.namespace, key)
+                    rule = Rule(direction, self.namespace, key, 'service')
                     rules[rule.key] = rule
             if 'serviceSelector' in service:
                 selector = service['serviceSelector']
