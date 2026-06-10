@@ -148,6 +148,10 @@ class PolicyParser:
                         dns_rules_from_ports.append(dns_rule['matchName'])
                         if self.debug:
                             print(f"      [DEBUG] Found DNS matchName in toPorts: {dns_rule['matchName']}")
+                    if 'matchPattern' in dns_rule:
+                        dns_rules_from_ports.append(dns_rule['matchPattern'])
+                        if self.debug:
+                            print(f"      [DEBUG] Found DNS matchPattern in toPorts: {dns_rule['matchPattern']}")
         return Ports(ports_info, dns_rules_from_ports)
 
     def _extract_fqdns(self, spec: Dict[str, Any], rules: Dict[str, Rule], direction: str) -> None:
