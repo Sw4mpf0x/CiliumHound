@@ -81,8 +81,6 @@ def process_policy_file(yaml_file: Path, rules: Dict[str, Rule], debug: bool = F
         parser.process_spec(spec, namespace, policy_name, rules)
     
     print(f"Found this many rules: {len(rules)}")
-    for rule in rules.values():
-        rule.print()
 
 
 def process_policies(path: str, debug: bool = False) -> Dict[str, Rule]:
@@ -171,7 +169,14 @@ def main():
     rules = process_policies(args.path, debug=args.debug)
     namespaces = set(rule.namespace for rule in rules.values())
     namespaces.update(rule.tgt_namespace for rule in rules.values() if rule.tgt_namespace)
-    print(rules)
+    endpoint_selector_keys = []
+    for rule in rules.values():
+        if rule.rule_type == "endpointSelector":
+            endpoint_selector_keys.append(rule.key)
+    endpoint_selectors = []
+    for esk in endpoint_selector_keys:
+        endpoint_selectors.append(rules.pop(esk))
+    
     if not rules:
         print("Error: No valid policies found or no rules extracted")
         sys.exit(1)
@@ -183,7 +188,7 @@ def main():
     
     # Create BloodHound graph
     print("Creating BloodHound OpenGraph...")
-    graph = create_bloodhound_graph(rules, namespaces, debug=args.debug)
+    graph = create_bloodhound_graph(rules, namespaces, endpoint_selectors, debug=args.debug)
     
     # Export to file
     print(f"Exporting to {args.output}...")

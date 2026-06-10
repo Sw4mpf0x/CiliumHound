@@ -18,6 +18,7 @@ class PolicyParser:
     
     NAMESPACE_LABEL_KEY = 'k8s:io.kubernetes.pod.namespace'
     namespace = ""
+    endpoint_selector = None
     debug = False
     EDGE_TYPE = {}
     
@@ -41,7 +42,7 @@ class PolicyParser:
             else:
                 cidr = cidr_item
             key = f"cidr:{cidr}"
-            rule = Rule(direction, self.namespace, key, 'cidr')
+            rule = Rule(direction, self.namespace, key, 'cidr', self.endpoint_selector)
             rules[rule.key] = rule
     
     def _add_entity_keys(self, entity_list: List[str], rules: Dict[str, Rule], direction: str) -> None:
@@ -50,7 +51,7 @@ class PolicyParser:
             print(f"    [DEBUG] Found entity: {entity_list}")
         for entity in entity_list:
             key = f"entity:{entity}"
-            rule = Rule(direction, self.namespace, key, 'entity')
+            rule = Rule(direction, self.namespace, key, 'entity', self.endpoint_selector)
             rules[rule.key] = rule
     
     def _process_labels(self, labels: Dict[str, str], rules: Dict[str, Rule], direction: str, header: str = "label", namespace_key_format: str = "namespace:{value} (byLabel)") -> str:
@@ -85,9 +86,10 @@ class PolicyParser:
         rule_key = first_key
         if other_keys:
             rule_key += f" (+ OTHER RULES)"
-        new_rule = Rule(direction, self.namespace, rule_key, rule_key.split(":")[0])
+        new_rule = Rule(direction, self.namespace, rule_key, rule_key.split(":")[0], self.endpoint_selector)
         if other_keys:
             new_rule.properties["rules"] = other_keys
+            # This changes the Rules key, don't do this after adding to the rules dict
             new_rule.generate_key_identifier()
         if tgt_namespace:
             new_rule.tgt_namespace = tgt_namespace
@@ -167,7 +169,7 @@ class PolicyParser:
             else:
                 return
             
-            rule = Rule(direction, self.namespace, key, 'fqdn')
+            rule = Rule(direction, self.namespace, key, 'fqdn', self.endpoint_selector)
             rules[rule.key] = rule
 
     def _extract_to_cidrs(self, spec: Dict[str, Any], rules: Dict[str, Rule], direction: str) -> None:
@@ -181,7 +183,7 @@ class PolicyParser:
             for cidr_rule in spec['toCIDRSet']:
                 cidr = cidr_rule.get('cidr', cidr_rule) if isinstance(cidr_rule, dict) else cidr_rule
                 key = f"cidrSet:{cidr}"
-                rule = Rule(direction, self.namespace, key, 'cidrSet')
+                rule = Rule(direction, self.namespace, key, 'cidrSet', self.endpoint_selector)
                 rules[rule.key] = rule
 
     def _extract_from_cidrs(self, spec: Dict[str, Any], rules: Dict[str, Rule], direction: str) -> None:
@@ -257,7 +259,7 @@ class PolicyParser:
                 properties = {}
                 if other_keys:
                     properties["rules"] = f"{other_keys}"
-                new_rule = Rule(direction, namespace_rule.namespace, first_key, 'label', properties=properties)
+                new_rule = Rule(direction, namespace_rule.namespace, first_key, 'label', self.endpoint_selector, properties=properties)
                 new_rule.tgt_namespace = namespace_rule.key
                 rules[new_rule.key] = new_rule
                 return new_rule.key
@@ -266,16 +268,19 @@ class PolicyParser:
                 rules[match_label_key].properties["rules"] += f" && {first_key} && {other_keys}"
             else:
                 rules[match_label_key].properties["rules"] = f"{first_key} && {other_keys}"
-            rules[match_label_key].generate_key_identifier()
-            return rules[match_label_key].key
+            old_rule = rules.pop(match_label_key)
+            old_rule.generate_key_identifier()
+            # We changed the identifier, so we need to save the rule as the new key
+            rules[old_rule.key] = old_rule
+            return old_rule.key
         # Otherwise, create a new rule for the match expression
         else:
             rule_key = first_key
             if other_keys:
                 rule_key += f" (+ OTHER RULES)"
-                new_rule = Rule(direction, self.namespace, rule_key, rule_key.split(":")[0], properties={"rules": other_keys})
+                new_rule = Rule(direction, self.namespace, rule_key, rule_key.split(":")[0], self.endpoint_selector, properties={"rules": other_keys})
             else:
-                new_rule = Rule(direction, self.namespace, rule_key, rule_key.split(":")[0])
+                new_rule = Rule(direction, self.namespace, rule_key, rule_key.split(":")[0], self.endpoint_selector)
 
             if tgt_namespace:
                 new_rule.tgt_namespace = tgt_namespace
@@ -297,7 +302,7 @@ class PolicyParser:
                 if service_name:
                     # TODO: Check if this makes sense in the graph once encountered
                     key = f"service:{namespace}/{service_name}" if namespace else f"service:{service_name}"
-                    rule = Rule(direction, self.namespace, key, 'service')
+                    rule = Rule(direction, self.namespace, key, 'service', self.endpoint_selector)
                     rules[rule.key] = rule
             if 'serviceSelector' in service:
                 selector = service['serviceSelector']
@@ -435,9 +440,9 @@ class PolicyParser:
 
         new_rules: Dict[str, Rule] = {}
 
-        endpoint_selector = None
+        self.endpoint_selector = None
         if 'endpointSelector' in spec:
-            endpoint_selector = self._extract_endpoint_selector(spec, new_rules)
+            self.endpoint_selector = self._extract_endpoint_selector(spec, new_rules)
 
         if 'egress' in spec:
             if self.debug:
@@ -468,8 +473,6 @@ class PolicyParser:
 
         
         for new_rule in new_rules.values():
-            if endpoint_selector:
-                new_rule.endpoint_selector = endpoint_selector
             new_rule.namespace = namespace
             new_rule.policy_name = policy_name
         rules.update(new_rules)

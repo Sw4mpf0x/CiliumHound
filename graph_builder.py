@@ -5,7 +5,7 @@ This module handles the creation of BloodHound OpenGraph structures
 from processed Cilium network policy data.
 """
 
-from typing import Dict, Set, Any, Tuple
+from typing import Dict, Set, Any, Tuple, List
 from bhopengraph.OpenGraph import OpenGraph
 from bhopengraph.Node import Node
 from bhopengraph.Edge import Edge
@@ -84,22 +84,7 @@ def add_node_with_endpoint_selector(
     Returns False if the endpoint selector node could not be added; the caller
     should skip the rest of processing for this rule.
     """
-    if not graph.get_node_by_id(rule.endpoint_selector):
-        if debug:
-            print(f"    [DEBUG] Creating endpoint selector node: {rule.endpoint_selector}")
-        # Strip id suffix and header prefix
-        display_name = strip_identifier_suffix(rule.endpoint_selector[17:])
-        endpoint_selector_node = Node(
-            id=rule.endpoint_selector,
-            kinds=["EndpointSelector"],
-            properties=Properties(
-                displayname=display_name,
-                name=display_name
-            )
-        )
-        if not graph.add_node(endpoint_selector_node):
-            print(f"    [ERROR] Failed to add endpoint selector node: {rule.endpoint_selector}")
-            return False
+
     if debug:
         print(f"    [DEBUG] Creating {rule.direction.capitalize()} edge from endpointSelector: {rule.endpoint_selector} to {rule.key}")
     if rule.direction == "ingress":
@@ -135,7 +120,8 @@ def add_node_with_endpoint_selector(
 
 def create_bloodhound_graph(
     rules: Dict[str, Rule],
-    namespaces: Set[str] = set(),
+    namespaces: Set[str],
+    endpoint_selectors: List[Rule],
     debug: bool = False
 ) -> OpenGraph:
     """Create a BloodHound OpenGraph from the extracted relationships"""
@@ -172,6 +158,24 @@ def create_bloodhound_graph(
         if debug:
             print(f"    [DEBUG] Created namespace node: {node_id}")
     
+    # Create endpoint selectors
+    if debug:
+        print(f"  [DEBUG] Creating endpointSelector nodes...")
+    for es in endpoint_selectors:
+        props_dict = es.properties
+        props_dict["displayname"] = es.name
+        props_dict["name"] = es.name
+        props_dict["namespace"] = es.namespace
+        node = Node(
+            id=es.key,
+            kinds=["EndpointSelector"],
+            properties=Properties(**props_dict)
+        )
+        if not graph.add_node(node):
+            print(f"    [ERROR] Failed to add endpointSelector node: {es.key}")
+        if debug:
+            print(f"    [DEBUG] Created endpointSelector node: {es.key}")
+        
     # Create rule nodes (FQDNs, CIDRs, endpoints, etc.)
     rule_nodes = {}
     if debug:
