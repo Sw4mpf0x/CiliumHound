@@ -59,11 +59,9 @@ class PolicyParser:
         if self.debug:
             print(f"      [DEBUG] Processing labels: {labels}")
         
-        # TODO: This doesn't account for situations where multiple labels are in a single matchLabels entry equating to an AND situation. Right now they all appear as OR with their own node.
         tgt_namespace = ""
         first_key = ""
         other_keys = ""
-        label_rules = []
         for k, v in labels.items():
             # If a namespace label is found, set the tgt_namespace and continue to the next label. Namespace nodes will be generated separately
             if k == self.NAMESPACE_LABEL_KEY:
@@ -84,13 +82,11 @@ class PolicyParser:
             else:
                 first_key = "empty"
         rule_key = first_key
+        properties = {}
         if other_keys:
             rule_key += f" (+ OTHER RULES)"
-        new_rule = Rule(direction, self.namespace, rule_key, rule_key.split(":")[0], self.endpoint_selector)
-        if other_keys:
-            new_rule.properties["rules"] = other_keys
-            # This changes the Rules key, don't do this after adding to the rules dict
-            new_rule.generate_key_identifier()
+            properties["rules"] = other_keys
+        new_rule = Rule(direction, self.namespace, rule_key, rule_key.split(":")[0], self.endpoint_selector, properties=properties)
         if tgt_namespace:
             new_rule.tgt_namespace = tgt_namespace
         rules[new_rule.key] = new_rule

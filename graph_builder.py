@@ -162,7 +162,7 @@ def create_bloodhound_graph(
     if debug:
         print(f"  [DEBUG] Creating endpointSelector nodes...")
     for es in endpoint_selectors:
-        props_dict = es.properties
+        props_dict = dict(es.properties)
         props_dict["displayname"] = es.name
         props_dict["name"] = es.name
         props_dict["namespace"] = es.namespace

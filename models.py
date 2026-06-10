@@ -1,7 +1,7 @@
 import hashlib
 from typing import List
 from enum import Enum
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 class Properties(Enum):
     ENDPOINT_SELECTOR = "endpointSelector"
@@ -51,11 +51,11 @@ class Rule:
     tgt_namespace: str = None
     properties: Dict[str, Any]
 
-    def __init__(self, direction: str, namespace: str, key: str, rule_type: str, endpoint_selector: str, properties: dict = {}, edge_type: EdgeType = None):
+    def __init__(self, direction: str, namespace: str, key: str, rule_type: str, endpoint_selector: str, properties: Optional[Dict[str, Any]] = None, edge_type: EdgeType = None):
         self.direction = direction
         self.namespace = namespace
         self.rule_type = rule_type
-        self.properties = properties
+        self.properties = dict(properties) if properties else {}
         self.edge_type = edge_type
         self.endpoint_selector = endpoint_selector
         self.key = key
