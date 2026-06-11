@@ -290,13 +290,21 @@ def create_bloodhound_graph(
                             start_node=node_id,
                             end_node=port_node.id,
                             kind="ToPortsWithRules",
-                            properties=Properties(rules=create_port_rules_lines(port_rules))
+                            properties=Properties(
+                                rules=create_port_rules_lines(port_rules),
+                                policy_name=rule.policy_name,
+                                namespace=rule.namespace
+                            )
                         )
                     else:
                         edge = Edge(
                             start_node=node_id,
                             end_node=port_node.id,
-                            kind="ToPorts"
+                            kind="ToPorts",
+                            properties=Properties(
+                                policy_name=rule.policy_name,
+                                namespace=rule.namespace
+                            )
                         )
                     if not graph.add_edge(edge):
                         print(f"    [ERROR] Failed to add edge: {node_id} -> {port_node.id}")
@@ -314,7 +322,11 @@ def create_bloodhound_graph(
             edge = Edge(
                 start_node=start_node,
                 end_node=end_node,
-                kind=kind
+                kind=kind,
+                properties=Properties(
+                    policy_name=rule.policy_name,
+                    namespace=rule.namespace
+                )
             )
             if not graph.add_edge(edge):
                 print(f"    [ERROR] Failed to add edge: {start_node} -> {end_node}")
