@@ -126,33 +126,59 @@ class PolicyParser:
                 return policy['metadata']['name']
         return None
 
-    def extract_port_info_from_toPorts(self, toPorts: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def extract_port_info_from_toPorts(self, toPorts: List[Dict[str, Any]]) -> Ports:
         """Extract port information from toPorts"""
         ports_info = []
-        dns_rules_from_ports = []
 
         for port_rule in toPorts:
+            port_rules = port_rule.get('rules')
             # Extract ports
             if 'ports' in port_rule:
                 for port_entry in port_rule['ports']:
                     port = port_entry.get('port', '')
                     protocol = port_entry.get('protocol', '')
-                    ports_info.append({'port': port, 'protocol': protocol})
+                    port_info = {'port': port, 'protocol': protocol}
+                    if port_rules:
+                        port_info['rules'] = port_rules
+                    ports_info.append(port_info)
                     if self.debug:
                         print(f"      [DEBUG] Found port: {port}/{protocol}")
-            
-            # Extract DNS rules from toPorts
-            if 'rules' in port_rule and 'dns' in port_rule['rules']:
-                for dns_rule in port_rule['rules']['dns']:
-                    if 'matchName' in dns_rule:
-                        dns_rules_from_ports.append(dns_rule['matchName'])
-                        if self.debug:
-                            print(f"      [DEBUG] Found DNS matchName in toPorts: {dns_rule['matchName']}")
-                    if 'matchPattern' in dns_rule:
-                        dns_rules_from_ports.append(dns_rule['matchPattern'])
-                        if self.debug:
-                            print(f"      [DEBUG] Found DNS matchPattern in toPorts: {dns_rule['matchPattern']}")
-        return Ports(ports_info, dns_rules_from_ports)
+                    if port_rules and self.debug:
+                        print(f"      [DEBUG] Found port rules in toPorts: {port_rules}")
+        return Ports(ports_info)
+
+    def _freeze_port_rules(self, value: Any) -> Any:
+        if isinstance(value, dict):
+            return tuple((k, self._freeze_port_rules(v)) for k, v in sorted(value.items()))
+        if isinstance(value, list):
+            return tuple(self._freeze_port_rules(item) for item in value)
+        return value
+
+    def _port_key(self, port: Dict[str, Any]) -> Tuple[Any, Any, Any]:
+        return (port.get('port'), port.get('protocol'), self._freeze_port_rules(port.get('rules')))
+
+    def _merge_ports(self, existing: Optional[Ports], incoming: Optional[Ports]) -> Optional[Ports]:
+        if not existing:
+            return incoming
+        if not incoming:
+            return existing
+
+        merged_ports = []
+        # Enable later if needed. For now, we want to see different protocol rules for the same port if applied by different policies
+        # seen_ports = set()
+        for port in (existing.ports or []) + (incoming.ports or []):
+            port_key = self._port_key(port)
+            # if port_key in seen_ports:
+            #     continue
+            merged_ports.append(dict(port))
+            # seen_ports.add(port_key)
+        return Ports(merged_ports)
+
+    def _merge_rule(self, rules: Dict[str, Rule], new_rule: Rule) -> None:
+        existing_rule = rules.get(new_rule.key)
+        if existing_rule:
+            new_rule.to_ports = self._merge_ports(existing_rule.to_ports, new_rule.to_ports)
+        rules[new_rule.key] = new_rule
 
     def _extract_fqdns(self, spec: Dict[str, Any], rules: Dict[str, Rule], direction: str) -> None:
         """Extract FQDN keys from spec"""
@@ -430,7 +456,7 @@ class PolicyParser:
             # Set the policy name for each rule
             for new_rule in new_rules.values():
                 new_rule.direction = direction
-            rules.update(new_rules)
+                self._merge_rule(rules, new_rule)
 
 
     def process_spec(self, spec: Dict[str, Any], namespace: str, policy_name: str, rules: Dict[str, Rule]) -> None:
@@ -475,7 +501,7 @@ class PolicyParser:
         for new_rule in new_rules.values():
             new_rule.namespace = namespace
             new_rule.policy_name = policy_name
-        rules.update(new_rules)
+            self._merge_rule(rules, new_rule)
 
 
 
@@ -502,7 +528,7 @@ def extract_policy_name_from_policy(policy: Dict[str, Any]) -> Optional[str]:
     return _default_parser.extract_policy_name_from_policy(policy)
 
 
-def extract_port_info_from_toPorts(toPorts: List[Dict[str, Any]]) -> Dict[str, Any]:
+def extract_port_info_from_toPorts(toPorts: List[Dict[str, Any]]) -> Ports:
     """Extract port information from toPorts"""
     parser = PolicyParser()
     return parser.extract_port_info_from_toPorts(toPorts)

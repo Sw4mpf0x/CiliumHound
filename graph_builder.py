@@ -6,6 +6,7 @@ from processed Cilium network policy data.
 """
 
 from typing import Dict, Set, Any, Tuple, List
+import yaml
 from bhopengraph.OpenGraph import OpenGraph
 from bhopengraph.Node import Node
 from bhopengraph.Edge import Edge
@@ -57,14 +58,16 @@ def remove_node_ingress_edge(graph: OpenGraph, node_id: str, policy_name: str) -
         del graph.edges[edge_to_remove]
 
 def create_metadata_string(ports: Ports) -> Tuple[str, str]:
-    """Create readable strings from metadata for ports and DNS rules"""
-    port_string, dns_string = "", ""
+    """Create readable strings from metadata for ports"""
+    port_string = ""
     if ports.ports:
         # Create a readable port string
         port_string = ",".join([f"{p.get('port', '')}/{p.get('protocol', '')}" for p in ports.ports if p.get('port') or p.get('protocol')])
-    if ports.dns_rules:
-        dns_string += f" [dns: {ports.dns_rules}]"
-    return port_string, dns_string
+    return port_string
+
+
+def create_port_rules_lines(port_rules: Dict[str, Any]) -> List[str]:
+    return yaml.safe_dump(port_rules, sort_keys=False).strip().splitlines()
 
 
 def strip_identifier_suffix(key_name: str) -> str:
@@ -230,11 +233,8 @@ def create_bloodhound_graph(
         
         # Add port information if available
         if rule.to_ports:
-            port_string, dns_string = create_metadata_string(rule.to_ports)
+            port_string = create_metadata_string(rule.to_ports)
             props_dict['ports'] = port_string
-            props_dict['dns_rules'] = dns_string
-            if dns_string:
-                props_dict['name'] += f" (DNS Rules)"
 
         if rule.properties.get('rules'):
             props_dict['rules'] = rule.properties.get('rules')
@@ -266,11 +266,20 @@ def create_bloodhound_graph(
                     rule_nodes[f"{port['port']}/{port['protocol']}"] = port_node.id
                     graph.add_node(port_node)
                     to_ports_ids.append(port_node.id)
-                    edge = Edge(
-                        start_node=node_id,
-                        end_node=port_node.id,
-                        kind="ToPorts"
-                    )
+                    port_rules = port.get('rules')
+                    if port_rules:
+                        edge = Edge(
+                            start_node=node_id,
+                            end_node=port_node.id,
+                            kind="ToPortsWithRules",
+                            properties=Properties(rules=create_port_rules_lines(port_rules))
+                        )
+                    else:
+                        edge = Edge(
+                            start_node=node_id,
+                            end_node=port_node.id,
+                            kind="ToPorts"
+                        )
                     if not graph.add_edge(edge):
                         print(f"    [ERROR] Failed to add edge: {node_id} -> {port_node.id}")
 

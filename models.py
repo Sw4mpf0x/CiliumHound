@@ -18,16 +18,13 @@ class EdgeType(Enum):
     FROM_ENDPOINT = 7
 
 class Ports:
-    ports: List[str]
-    dns_rules: List[str]
+    ports: List[Dict[str, Any]]
 
-    def __init__(self, ports: List[str], dns_rules: List[str]):
+    def __init__(self, ports: List[Dict[str, Any]]):
         self.ports = ports
-        self.dns_rules = dns_rules
 
     def print(self):
         print(f"Ports: {self.ports}")
-        print(f"DNS Rules: {self.dns_rules}")
 
 def append_key_hash_id(key: str, namespace: str, direction: str, endpoint_selector: str, rules: str = None) -> str:
     if rules:
