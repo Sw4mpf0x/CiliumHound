@@ -67,14 +67,17 @@ class PolicyParser:
             if k == self.NAMESPACE_LABEL_KEY:
                 tgt_namespace = namespace_key_format.format(value=labels[k])
                 continue
-            
+            if v:
+                value_string = v
+            else:
+                value_string = '""'
             # Otherwise, create a label rule for the label
             if not first_key:
-                first_key = f"{header}:{k}={v}"
+                first_key = f"{header}:{k}={value_string}"
             elif not other_keys:
-                other_keys = f"{k}={v}"
+                other_keys = f"{k}={value_string}"
             else:
-                other_keys += f" && {k}={v}"
+                other_keys += f" && {k}={value_string}"
 
         if not first_key:
             if tgt_namespace:
@@ -83,10 +86,12 @@ class PolicyParser:
                 first_key = "empty"
         rule_key = first_key
         properties = {}
+        name = first_key
         if other_keys:
-            rule_key += f" (+ OTHER RULES)"
+            name += f" (+)"
             properties["rules"] = other_keys
         new_rule = Rule(direction, self.namespace, rule_key, rule_key.split(":")[0], self.endpoint_selector, properties=properties)
+        new_rule.name = name
         if tgt_namespace:
             new_rule.tgt_namespace = tgt_namespace
         rules[new_rule.key] = new_rule
@@ -291,9 +296,13 @@ class PolicyParser:
                 return new_rule.key
             # otherwise, update existing and generate a new identifier
             elif "rules" in rules[match_label_key].properties:
-                rules[match_label_key].properties["rules"] += f" && {first_key} && {other_keys}"
+                rules[match_label_key].properties["rules"] += f" && {first_key}"
             else:
-                rules[match_label_key].properties["rules"] = f"{first_key} && {other_keys}"
+                rules[match_label_key].properties["rules"] = f"{first_key}"
+                rules[match_label_key].name = f"{rules[match_label_key].name} (+)"
+
+            if other_keys:
+                rules[match_label_key].properties["rules"] += f" && {other_keys}"
             old_rule = rules.pop(match_label_key)
             old_rule.generate_key_identifier()
             # We changed the identifier, so we need to save the rule as the new key

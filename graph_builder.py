@@ -219,12 +219,11 @@ def create_bloodhound_graph(
         else:
             key_type = "Key"
             key_name = rule.key
-        display_key_name = strip_identifier_suffix(key_name)
         
         # Build properties with metadata
         props_dict = {
-            'displayname': display_key_name,
-            'name': display_key_name,
+            'displayname': rule.name,
+            'name': rule.name,
             'key_type': key_type,
             'full_key': rule.key,
             'namespace': rule.namespace,
@@ -301,7 +300,7 @@ def create_bloodhound_graph(
             if not graph.add_edge(edge):
                 print(f"    [ERROR] Failed to add edge: {node_id} -> {tgt_namespace_id}")
         if debug:
-            print(f"    [DEBUG] Created rule node: {node_id} (type: {key_type}, name: {display_key_name})")
+            print(f"    [DEBUG] Created rule node: {node_id} (type: {key_type}, name: {rule.name})")
     
         if rule.direction == "egress":
             # Create Egress edges: namespace -> key or endpointSelector -> key
