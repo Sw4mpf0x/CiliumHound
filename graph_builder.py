@@ -125,7 +125,8 @@ def create_bloodhound_graph(
     rules: Dict[str, Rule],
     namespaces: Set[str],
     endpoint_selectors: List[Rule],
-    debug: bool = False
+    debug: bool = False,
+    any_namespace: bool = True
 ) -> OpenGraph:
     """Create a BloodHound OpenGraph from the extracted relationships"""
     print(f"\nCreating BloodHound graph...")
@@ -160,6 +161,24 @@ def create_bloodhound_graph(
         namespace_nodes[namespace] = node_id
         if debug:
             print(f"    [DEBUG] Created namespace node: {node_id}")
+
+    if any_namespace:
+        any_namespace_id = "namespace:ANY"
+        if any_namespace_id not in namespace_nodes.values():
+            node = Node(
+                id=any_namespace_id,
+                kinds=["Namespace"],
+                properties=Properties(
+                    displayname="ANY",
+                    name="ANY",
+                    namespace="ANY"
+                )
+            )
+            if not graph.add_node(node):
+                print(f"    [ERROR] Failed to add namespace node: {any_namespace_id}")
+            if debug:
+                print(f"    [DEBUG] Created namespace node: {any_namespace_id}")
+        namespace_nodes["ANY"] = any_namespace_id
     
     # Create endpoint selectors
     if debug:
@@ -282,23 +301,23 @@ def create_bloodhound_graph(
                     if not graph.add_edge(edge):
                         print(f"    [ERROR] Failed to add edge: {node_id} -> {port_node.id}")
 
-        if rule.tgt_namespace:
-            tgt_namespace_id = namespace_nodes[rule.tgt_namespace]
-            if rule.direction == "ingress":
+        if rule.tgt_namespace or any_namespace:
+            tgt_namespace_id = namespace_nodes[rule.tgt_namespace] if rule.tgt_namespace else any_namespace_id
+            if rule.direction.startswith("ingress"):
                 start_node = tgt_namespace_id
                 end_node = node_id
                 kind = "FromNamespace"
             else:
                 start_node = node_id
                 end_node = tgt_namespace_id
-                kind="ToNamespace"
+                kind = "ToNamespace"
             edge = Edge(
                 start_node=start_node,
                 end_node=end_node,
                 kind=kind
             )
             if not graph.add_edge(edge):
-                print(f"    [ERROR] Failed to add edge: {node_id} -> {tgt_namespace_id}")
+                print(f"    [ERROR] Failed to add edge: {start_node} -> {end_node}")
         if debug:
             print(f"    [DEBUG] Created rule node: {node_id} (type: {key_type}, name: {rule.name})")
     

@@ -24,6 +24,15 @@ from policy_parser import (
 )
 
 
+def parse_bool(value: str) -> bool:
+    normalized_value = value.lower()
+    if normalized_value in ("true", "1", "yes", "y"):
+        return True
+    if normalized_value in ("false", "0", "no", "n"):
+        return False
+    raise argparse.ArgumentTypeError("Expected true or false")
+
+
 def process_policy_file(yaml_file: Path, rules: Dict[str, Rule], debug: bool = False) -> None:
     """
     Process a single YAML policy file and update the rules dictionary.
@@ -143,6 +152,13 @@ def main():
         action="store_true",
         help="Enable debug mode with verbose output"
     )
+    parser.add_argument(
+        "--any-namespace",
+        default=True,
+        type=parse_bool,
+        metavar="true|false",
+        help="Create ANY namespace node and fallback namespace edges (default: true)"
+    )
     
     args = parser.parse_args()
     
@@ -188,7 +204,13 @@ def main():
     
     # Create BloodHound graph
     print("Creating BloodHound OpenGraph...")
-    graph = create_bloodhound_graph(rules, namespaces, endpoint_selectors, debug=args.debug)
+    graph = create_bloodhound_graph(
+        rules,
+        namespaces,
+        endpoint_selectors,
+        debug=args.debug,
+        any_namespace=args.any_namespace
+    )
     
     # Export to file
     print(f"Exporting to {args.output}...")
