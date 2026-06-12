@@ -6,6 +6,7 @@ from processed Cilium network policy data.
 """
 
 from typing import Dict, Set, Any, Tuple, List
+import hashlib
 import yaml
 from bhopengraph.OpenGraph import OpenGraph
 from bhopengraph.Node import Node
@@ -68,6 +69,28 @@ def create_metadata_string(ports: Ports) -> Tuple[str, str]:
 
 def create_port_rules_lines(port_rules: Dict[str, Any]) -> List[str]:
     return yaml.safe_dump(port_rules, sort_keys=False).strip().splitlines()
+
+
+def create_port_rules_node_id(
+    source_node_id: str,
+    port: Dict[str, Any],
+    rule_protocol: str,
+    protocol_rules: Any,
+    policy_name: Any
+) -> str:
+    hash_input = yaml.safe_dump(
+        {
+            "source": source_node_id,
+            "port": port.get("port"),
+            "protocol": port.get("protocol"),
+            "rule_protocol": rule_protocol,
+            "policy_name": policy_name,
+            "rules": protocol_rules,
+        },
+        sort_keys=True,
+    )
+    key_hash = hashlib.sha256(hash_input.encode("utf-8")).hexdigest()[-8:]
+    return f"PortRules:{rule_protocol}:{key_hash}"
 
 
 def strip_identifier_suffix(key_name: str) -> str:
@@ -285,17 +308,54 @@ def create_bloodhound_graph(
                     graph.add_node(port_node)
                     to_ports_ids.append(port_node.id)
                     port_rules = port.get('rules')
+                    port_policy_name = port.get('policy_name', rule.policy_name)
                     if port_rules:
-                        edge = Edge(
-                            start_node=node_id,
-                            end_node=port_node.id,
-                            kind="ToPortsWithRules",
-                            properties=Properties(
-                                rules=create_port_rules_lines(port_rules),
-                                policy_name=rule.policy_name,
-                                namespace=rule.namespace
+                        port_rule_items = port_rules.items() if isinstance(port_rules, dict) else [("rules", port_rules)]
+                        # Handle cases where more than one protocol are present
+                        for rule_protocol, protocol_rules in port_rule_items:
+                            protocol_port_rules = {rule_protocol: protocol_rules}
+                            port_rules_node_id = create_port_rules_node_id(
+                                node_id,
+                                port,
+                                rule_protocol,
+                                protocol_rules,
+                                port_policy_name
                             )
-                        )
+                            port_rules_node = Node(
+                                id=port_rules_node_id,
+                                kinds=["PortRules"],
+                                properties=Properties(
+                                    displayname=f"{rule_protocol} rules",
+                                    name=f"{rule_protocol} rules",
+                                    port=f"{port['port']}/{port['protocol']}",
+                                    rules=create_port_rules_lines(protocol_port_rules),
+                                    policy_name=port_policy_name,
+                                    namespace=rule.namespace
+                                )
+                            )
+                            graph.add_node(port_rules_node)
+                            edge = Edge(
+                                start_node=node_id,
+                                end_node=port_rules_node_id,
+                                kind="WithPortRules",
+                                properties=Properties(
+                                    policy_name=port_policy_name,
+                                    namespace=rule.namespace
+                                )
+                            )
+                            if not graph.add_edge(edge):
+                                print(f"    [ERROR] Failed to add edge: {node_id} -> {port_rules_node_id}")
+                            edge = Edge(
+                                start_node=port_rules_node_id,
+                                end_node=port_node.id,
+                                kind="ToPorts",
+                                properties=Properties(
+                                    policy_name=port_policy_name,
+                                    namespace=rule.namespace
+                                )
+                            )
+                            if not graph.add_edge(edge):
+                                print(f"    [ERROR] Failed to add edge: {port_rules_node_id} -> {port_node.id}")
                     else:
                         edge = Edge(
                             start_node=node_id,
@@ -306,8 +366,8 @@ def create_bloodhound_graph(
                                 namespace=rule.namespace
                             )
                         )
-                    if not graph.add_edge(edge):
-                        print(f"    [ERROR] Failed to add edge: {node_id} -> {port_node.id}")
+                        if not graph.add_edge(edge):
+                            print(f"    [ERROR] Failed to add edge: {node_id} -> {port_node.id}")
 
         if rule.tgt_namespace or any_namespace:
             tgt_namespace_id = namespace_nodes[rule.tgt_namespace] if rule.tgt_namespace else any_namespace_id
