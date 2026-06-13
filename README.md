@@ -32,35 +32,42 @@ python CiliumHound.py ./policies -o cilium_graph.json
 python CiliumHound.py ./policies -o cilium_graph.json --debug
 ```
 
-## File Naming Convention
-
-The script expects YAML files to be named in the format:
-```
-[namespace]_[policy_name].yaml
-```
-
-For example: `production_web-policy.yaml`
-
-If the namespace cannot be extracted from the filename, the script will attempt to extract it from the policy's metadata.
-
 ## Output
 
-The script generates a BloodHound OpenGraph JSON file that can be imported into BloodHound for visualization. The graph includes:
+The script generates a BloodHound OpenGraph JSON file that can be imported into BloodHound for visualization.
 
-- **Nodes**:
-  - Namespaces (from policy metadata or filenames)
-  - Keys extracted from ingress/egress rules:
-    - FQDNs (from `toFQDNs` and `matchName`)
-    - FQDN Patterns (from `toFQDNs` and `matchPattern`)
-    - CIDRs (from `toCIDR`, `toCIDRs`, `toCIDRSet`, and `fromCIDRs`)
-    - Services (from `toServices`)
-    - Endpoints (from `toEndpoints` and `fromEndpoints` match labels)
-    - Entities (from `toEntities` and `fromEntities`)
-    - Labels (from endpoint match labels)
+## Graph Node And Edge Types
 
-- **Edges**:
-  - `Egress`: Namespace → Key (for egress rules)
-  - `Ingress`: Key → Namespace (for ingress rules)
+### Node Types
+
+| Node kind | Created from | Key format | Common properties |
+|-----------|--------------|------------|-------------------|
+| `Namespace` | Policy namespaces, namespace label selectors, and optional fallback namespace | `namespace:<name>` or `namespace:ANY` | `displayname`, `name`, `namespace` |
+| `EndpointSelector` | Top-level `endpointSelector.matchLabels` and `endpointSelector.matchExpressions` | `endpointSelector:<selector>` | Selector labels, `displayname`, `name`, `namespace`, optional `rules` |
+| `FQDN` | `toFQDNs.matchName` | `fqdn:<name>` | `displayname`, `name`, `key_type`, `full_key`, `namespace`, `policy_name`, optional `ports`, `rules` |
+| `FQDN-Pattern` | `toFQDNs.matchPattern` | `fqdn-pattern:<pattern>` | `displayname`, `name`, `key_type`, `full_key`, `namespace`, `policy_name`, optional `ports`, `rules` |
+| `CIDR` | `toCIDR`, `fromCIDRs` | `cidr:<cidr>` | `displayname`, `name`, `key_type`, `full_key`, `namespace`, `policy_name`, optional `ports`, `rules` |
+| `CIDRSet` | `toCIDRSet` | `cidrSet:<cidr>` | `displayname`, `name`, `key_type`, `full_key`, `namespace`, `policy_name`, optional `ports`, `rules` |
+| `Service` | `toServices.k8sService` | `service:<namespace>/<name>` or `service:<name>` | `displayname`, `name`, `key_type`, `full_key`, `namespace`, `policy_name`, optional `ports` |
+| `Label` | `toEndpoints`, `fromEndpoints`, service selectors, and match expressions | `label:<key>=<value>` or `label:expr:<expression>` | `displayname`, `name`, `key_type`, `full_key`, `namespace`, `policy_name`, optional `rules` as an array |
+| `Entity` | `toEntities`, `fromEntities` | `entity:<name>` | `displayname`, `name`, `key_type`, `full_key`, `namespace`, `policy_name`, optional `ports` |
+| `Port` | `toPorts.ports` | `Key:<port>/<protocol>` | `displayname`, `name` |
+| `PortRules` | Per-protocol `toPorts.rules` blocks | `PortRules:<protocol>:<hash>` | `displayname`, `name`, `port`, `rules` as an array, `policy_name`, `namespace` |
+| `Key` | Fallback for unclassified rule keys | Original rule key | `displayname`, `name`, `key_type`, `full_key`, `namespace`, `policy_name` |
+
+### Edge Types
+
+| Edge kind | Direction | Created when | Common properties |
+|-----------|-----------|--------------|-------------------|
+| `Egress` | `Namespace` or `EndpointSelector` -> rule node | An egress rule allows traffic to the rule target | `policy_name`, `namespace` |
+| `Ingress` | Rule node -> `Namespace` or `EndpointSelector` | An ingress rule allows traffic from the rule source | `policy_name`, `namespace` |
+| `EgressDeny` | `Namespace` -> rule node or `EndpointSelector` -> rule node | An egress deny rule may or may not scoped by an endpoint selector | `policy_name`, `namespace` |
+| `IngressDeny` | Rule node -> `Namespace` or Rule node -> `EndpointSelector` | An ingress deny rule may or may scoped by an endpoint selector | `policy_name`, `namespace` |
+| `EndpointsWithSelector` | `Namespace` -> `EndpointSelector` | A policy has an endpoint selector | `policy_name`, `namespace` |
+| `ToNamespace` | Rule node -> `Namespace` | A rule targets a namespace, or no target namespace exists and `--any-namespace true` is used | none |
+| `FromNamespace` | `Namespace` -> rule node | An ingress rule has a source namespace, or no source namespace exists and `--any-namespace true` is used | none |
+| `ToPorts` | Rule node -> `Port`, or `PortRules` -> `Port` | A rule has a port without protocol rules, or a `PortRules` node points to its port | `policy_name`, `namespace` |
+| `WithPortRules` | Rule node -> `PortRules` | A port has protocol-specific rules such as `dns` or `http` | `policy_name`, `namespace` |
 
 ## BloodHound CE helper (`helper-scripts/`)
 
