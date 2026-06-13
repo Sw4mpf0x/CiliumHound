@@ -53,6 +53,16 @@ class PolicyParser:
             key = f"entity:{entity}"
             rule = Rule(direction, self.namespace, key, 'entity', self.endpoint_selector)
             rules[rule.key] = rule
+
+    def _port_protocol_rule_list(self, value: Any) -> List[str]:
+        if not value:
+            return []
+        if isinstance(value, list):
+            return list(value)
+        return [part.strip() for part in str(value).split("&&") if part.strip()]
+
+    def _rule_base_key(self, rule: Rule) -> str:
+        return rule.key[:-9] if rule.identifier_set and len(rule.key) > 9 else rule.key
     
     def _process_labels(self, labels: Dict[str, str], rules: Dict[str, Rule], direction: str, header: str = "label", namespace_key_format: str = "namespace:{value} (byLabel)") -> str:
         """Process matchLabels and extract keys, handling AND relationships"""
@@ -61,7 +71,7 @@ class PolicyParser:
         
         tgt_namespace = ""
         first_key = ""
-        other_keys = ""
+        label_rules = []
         for k, v in labels.items():
             # If a namespace label is found, set the tgt_namespace and continue to the next label. Namespace nodes will be generated separately
             if k == self.NAMESPACE_LABEL_KEY:
@@ -72,12 +82,10 @@ class PolicyParser:
             else:
                 value_string = '""'
             # Otherwise, create a label rule for the label
+            label_rule = f"{k}={value_string}"
+            label_rules.append(label_rule)
             if not first_key:
-                first_key = f"{header}:{k}={value_string}"
-            elif not other_keys:
-                other_keys = f"{k}={value_string}"
-            else:
-                other_keys += f" && {k}={value_string}"
+                first_key = f"{header}:{label_rule}"
 
         if not first_key:
             if tgt_namespace:
@@ -86,12 +94,13 @@ class PolicyParser:
                 first_key = "empty"
         rule_key = first_key
         properties = {}
-        name = first_key
-        if other_keys:
-            name += f" (+)"
-            properties["rules"] = other_keys
+        decorate_name = False
+        if len(label_rules) > 1:
+            decorate_name = True
+            properties["rules"] = label_rules
         new_rule = Rule(direction, self.namespace, rule_key, rule_key.split(":")[0], self.endpoint_selector, properties=properties)
-        new_rule.name = name
+        if decorate_name:
+            new_rule.name = f"{new_rule.name} (+)"
         if tgt_namespace:
             new_rule.tgt_namespace = tgt_namespace
         rules[new_rule.key] = new_rule
@@ -259,9 +268,8 @@ class PolicyParser:
                 print(f"      [DEBUG] Match label key found: {match_label_key}")
             print(f"      [DEBUG] Processing matchExpressions: {match_expressions}")
         tgt_namespace = ""
-        match_expression_rules = []
         first_key = ""
-        other_keys = ""
+        match_expression_rules = []
         for match_expression in match_expressions:
             # If a namespace label is found, set the tgt_namespace and continue to the next match expression. Namespace nodes will be generated separately
             if match_expression['key'] == self.NAMESPACE_LABEL_KEY:
@@ -272,13 +280,10 @@ class PolicyParser:
             key = f"\"{match_expression['key']}\"-({match_expression['operator']})"
             if match_expression.get('values'):
                 key += f"-{str(match_expression.get('values'))}"
+            match_expression_rule = f"{key}"
+            match_expression_rules.append(match_expression_rule)
             if not first_key:
-                first_key = f"{header}:{key}"
-            elif not other_keys:
-                first_key += f" (+ OTHER RULES)"
-                other_keys = key
-            else:
-                other_keys += f" && {key}"
+                first_key = f"{header}:{match_expression_rule}"
         
         # If a matchLabel key is present in this peer rule, add the new match expression to the existing rule
         if match_label_key and match_label_key in rules:
@@ -288,22 +293,23 @@ class PolicyParser:
             if rules[match_label_key].rule_type == "namespace":
                 namespace_rule = rules.pop(match_label_key)
                 properties = {}
-                if other_keys:
-                    properties["rules"] = f"{other_keys}"
+                decorate_name = False
+                if len(match_expression_rules) > 1:
+                    decorate_name = True
+                    properties["rules"] = match_expression_rules
                 new_rule = Rule(direction, namespace_rule.namespace, first_key, 'label', self.endpoint_selector, properties=properties)
+                if decorate_name:
+                    new_rule.name += f" (+)"
                 new_rule.tgt_namespace = namespace_rule.key
                 rules[new_rule.key] = new_rule
                 return new_rule.key
             # otherwise, update existing and generate a new identifier
-            elif "rules" in rules[match_label_key].properties:
-                rules[match_label_key].properties["rules"] += f" && {first_key}"
-            else:
-                rules[match_label_key].properties["rules"] = f"{first_key}"
-                rules[match_label_key].name = f"{rules[match_label_key].name} (+)"
-
-            if other_keys:
-                rules[match_label_key].properties["rules"] += f" && {other_keys}"
             old_rule = rules.pop(match_label_key)
+            existing_port_rules = self._port_protocol_rule_list(old_rule.properties.get("rules"))
+            if not existing_port_rules:
+                existing_port_rules = [self._rule_base_key(old_rule)]
+            old_rule.properties["rules"] = existing_port_rules + match_expression_rules
+            old_rule.name = f"{old_rule.name} (+)"
             old_rule.generate_key_identifier()
             # We changed the identifier, so we need to save the rule as the new key
             rules[old_rule.key] = old_rule
@@ -311,11 +317,14 @@ class PolicyParser:
         # Otherwise, create a new rule for the match expression
         else:
             rule_key = first_key
-            if other_keys:
-                rule_key += f" (+ OTHER RULES)"
-                new_rule = Rule(direction, self.namespace, rule_key, rule_key.split(":")[0], self.endpoint_selector, properties={"rules": other_keys})
-            else:
-                new_rule = Rule(direction, self.namespace, rule_key, rule_key.split(":")[0], self.endpoint_selector)
+            properties = {}
+            decorate_name = False
+            if len(match_expression_rules) > 1:
+                decorate_name = True
+                properties["rules"] = match_expression_rules
+            new_rule = Rule(direction, self.namespace, rule_key, rule_key.split(":")[0], self.endpoint_selector, properties=properties)
+            if decorate_name:
+                new_rule.name = f"{new_rule.name} (+)"
 
             if tgt_namespace:
                 new_rule.tgt_namespace = tgt_namespace
