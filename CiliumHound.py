@@ -154,10 +154,10 @@ def main():
     )
     parser.add_argument(
         "--any-namespace",
-        default=True,
+        default=False,
         type=parse_bool,
         metavar="true|false",
-        help="Create ANY namespace node and fallback namespace edges (default: true)"
+        help="Create ANY namespace node and fallback namespace edges (default: false)"
     )
     
     args = parser.parse_args()
