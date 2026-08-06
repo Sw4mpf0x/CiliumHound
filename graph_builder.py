@@ -78,6 +78,7 @@ def create_port_rules_node_id(
     protocol_rules: Any,
     policy_name: Any
 ) -> str:
+    """Generate a port key containing a unique ID based on port information"""
     hash_input = yaml.safe_dump(
         {
             "source": source_node_id,
@@ -95,6 +96,32 @@ def create_port_rules_node_id(
 
 def strip_identifier_suffix(key_name: str) -> str:
     return key_name[:-9] if len(key_name) > 9 else key_name
+
+
+def get_edge_policynames(graph: OpenGraph, start_node: str, end_node: str):
+    edges = graph.get_edges_to_node(end_node)
+    for edge in edges:
+        if start_node == edge.start_node:
+            return edge.get_property("policy_name")
+    return []
+
+
+def create_edge(graph: OpenGraph, start_node: str, end_node: str, kind: str, properties: Properties):
+    # If an edge already exists, we need to append this policy's name to the edge if not present
+    existing_policy_list = get_edge_policynames(graph, start_node, end_node)
+    if existing_policy_list:
+        policy_name = properties.get_property("policy_name")[0]
+        if policy_name not in existing_policy_list:
+            print("Appending policy " + policy_name + " to start node " + start_node)
+            existing_policy_list.extend(properties.get_property("policy_name"))
+            properties.set_property("policy_name", existing_policy_list)
+
+    return Edge(
+        start_node=start_node,
+        end_node=end_node,
+        kind=kind,
+        properties=properties
+    )
 
 
 def add_node_with_endpoint_selector(
@@ -119,28 +146,32 @@ def add_node_with_endpoint_selector(
     else:
         start_node = rule.endpoint_selector
         end_node = rule.key
-    endpoint_selector_edge = Edge(
-        start_node=start_node,
-        end_node=end_node,
-        kind=rule.direction.capitalize(),
-        properties=Properties(
-            policy_name=rule.policy_name,
+
+    endpoint_selector_edge = create_edge(
+        graph,
+        start_node,
+        end_node,
+        rule.direction.capitalize(),
+        Properties(
+            policy_name=[rule.policy_name],
             namespace=rule.namespace
         )
     )
     if not graph.add_edge(endpoint_selector_edge):
         print(f"    [ERROR] Failed to add {rule.direction.capitalize()} edge: {rule.endpoint_selector} -> {rule.key}")
-    namespace_edge = Edge(
-        start_node=namespace_id,
-        end_node=rule.endpoint_selector,
-        kind="EndpointsWithSelector",
-        properties=Properties(
-            policy_name=rule.policy_name,
+
+    namespace_edge = create_edge(
+        graph,
+        namespace_id,
+        rule.endpoint_selector,
+        "EndpointsWithSelector",
+        Properties(
+            policy_name=[rule.policy_name],
             namespace=rule.namespace
         )
     )
-    if not graph.add_edge(namespace_edge):
-        print(f"    [ERROR] Failed to add EndpointsWithSelector edge: {namespace_id} -> {rule.endpoint_selector}")
+    if not graph.add_edge(namespace_edge) and debug:
+        print(f"    [WARNING] Failed to add EndpointsWithSelector edge: {namespace_id} -> {rule.endpoint_selector}")
     return True
 
 
@@ -329,40 +360,45 @@ def create_bloodhound_graph(
                                     name=f"{rule_protocol} rules",
                                     port=f"{port['port']}/{port['protocol']}",
                                     rules=create_port_rules_lines(protocol_port_rules),
-                                    policy_name=port_policy_name,
+                                    policy_name=[port_policy_name],
                                     namespace=rule.namespace
                                 )
                             )
                             graph.add_node(port_rules_node)
-                            edge = Edge(
-                                start_node=node_id,
-                                end_node=port_rules_node_id,
-                                kind="WithPortRules",
-                                properties=Properties(
-                                    policy_name=port_policy_name,
+
+                            edge = create_edge(
+                                graph,
+                                node_id,
+                                port_rules_node_id,
+                                "WithPortRules",
+                                Properties(
+                                    policy_name=[port_policy_name],
                                     namespace=rule.namespace
                                 )
                             )
                             if not graph.add_edge(edge):
                                 print(f"    [ERROR] Failed to add edge: {node_id} -> {port_rules_node_id}")
-                            edge = Edge(
-                                start_node=port_rules_node_id,
-                                end_node=port_node.id,
-                                kind="ToPorts",
-                                properties=Properties(
-                                    policy_name=port_policy_name,
+
+                            edge = create_edge(
+                                graph,
+                                port_rules_node_id,
+                                port_node.id,
+                                "ToPorts",
+                                Properties(
+                                    policy_name=[port_policy_name],
                                     namespace=rule.namespace
                                 )
                             )
                             if not graph.add_edge(edge):
                                 print(f"    [ERROR] Failed to add edge: {port_rules_node_id} -> {port_node.id}")
                     else:
-                        edge = Edge(
-                            start_node=node_id,
-                            end_node=port_node.id,
-                            kind="ToPorts",
-                            properties=Properties(
-                                policy_name=rule.policy_name,
+                        edge = create_edge(
+                            graph,
+                            node_id,
+                            port_node.id,
+                            "ToPorts",
+                            Properties(
+                                policy_name=[rule.policy_name],
                                 namespace=rule.namespace
                             )
                         )
@@ -379,12 +415,14 @@ def create_bloodhound_graph(
                 start_node = node_id
                 end_node = tgt_namespace_id
                 kind = "ToNamespace"
-            edge = Edge(
-                start_node=start_node,
-                end_node=end_node,
-                kind=kind,
-                properties=Properties(
-                    policy_name=rule.policy_name,
+
+            edge = create_edge(
+                graph,
+                start_node,
+                end_node,
+                kind,
+                Properties(
+                    policy_name=[rule.policy_name],
                     namespace=rule.namespace
                 )
             )
@@ -405,12 +443,14 @@ def create_bloodhound_graph(
             else:
                 if debug:
                     print(f"    [DEBUG] Creating Egress edge from namespace: {namespace_id} to {rule.key}")
-                namespace_edge = Edge(
-                    start_node=namespace_id,
-                    end_node=rule.key,
-                    kind="Egress",
-                    properties=Properties(
-                        policy_name=rule.policy_name,
+
+                namespace_edge = create_edge(
+                    graph,
+                    namespace_id,
+                    rule.key,
+                    "Egress",
+                    Properties(
+                        policy_name=[rule.policy_name],
                         namespace=rule.namespace
                     )
                 )
@@ -428,12 +468,13 @@ def create_bloodhound_graph(
             if rule.endpoint_selector:
                 add_node_with_endpoint_selector(graph, rule, namespace_id, debug=debug)
             else:
-                edge = Edge(
-                    start_node=rule.key,
-                    end_node=namespace_id,
-                    kind="Ingress",
-                    properties=Properties(
-                        policy_name=rule.policy_name,
+                edge = create_edge(
+                    graph,
+                    rule.key,
+                    namespace_id,
+                    "Ingress",
+                    Properties(
+                        policy_name=[rule.policy_name],
                         namespace=rule.namespace
                     )
                 )
@@ -451,12 +492,13 @@ def create_bloodhound_graph(
             if rule.endpoint_selector:
                 add_node_with_endpoint_selector(graph, rule, namespace_id, debug=debug)
             else:
-                edge = Edge(
-                    start_node=namespace_id,
-                    end_node=rule.key,
-                    kind="EgressDeny",
-                    properties=Properties(
-                        policy_name=rule.policy_name,
+                edge = create_edge(
+                    graph,
+                    namespace_id,
+                    rule.key,
+                    "EgressDeny",
+                    Properties(
+                        policy_name=[rule.policy_name],
                         namespace=rule.namespace
                     )
                 )
@@ -475,14 +517,15 @@ def create_bloodhound_graph(
             if rule.endpoint_selector:
                 add_node_with_endpoint_selector(graph, rule, namespace_id, debug=debug)
             else:
-                edge = Edge(
-                    start_node=rule.key,
-                        end_node=namespace_id,
-                        kind="IngressDeny",
-                        properties=Properties(
-                            policy_name=rule.policy_name,
-                            namespace=rule.namespace
-                        )
+                edge = create_edge(
+                    graph,
+                    rule.key,
+                    namespace_id,
+                    "IngressDeny",
+                    Properties(
+                        policy_name=[rule.policy_name],
+                        namespace=rule.namespace
+                    )
                 )
                 if not graph.add_edge(edge):
                     print(f"    [ERROR] Failed to add Ingress Deny edge: {rule.key} -> {namespace_id}")
