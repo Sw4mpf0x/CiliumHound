@@ -41,6 +41,8 @@ class Rule:
     identifier_set: bool = False
     key: str = None
     name: str
+    policy_name: str
+    policy_names: List[str]
     rule_type: str
     edge_type: EdgeType = None
     endpoint_selector: str = ""
@@ -56,6 +58,8 @@ class Rule:
         self.edge_type = edge_type
         self.endpoint_selector = endpoint_selector
         self.key = key
+        self.policy_name = ""
+        self.policy_names = []
         self.name = key.split(":", 1)[1]
         self.generate_key_identifier()
         print("---------" + key + "---------")

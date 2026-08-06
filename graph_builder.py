@@ -5,7 +5,7 @@ This module handles the creation of BloodHound OpenGraph structures
 from processed Cilium network policy data.
 """
 
-from typing import Dict, Set, Any, Tuple, List
+from typing import Dict, Set, Any, Tuple, List, Optional
 import hashlib
 import yaml
 from bhopengraph.OpenGraph import OpenGraph
@@ -98,23 +98,54 @@ def strip_identifier_suffix(key_name: str) -> str:
     return key_name[:-9] if len(key_name) > 9 else key_name
 
 
-def get_edge_policynames(graph: OpenGraph, start_node: str, end_node: str):
-    edges = graph.get_edges_to_node(end_node)
-    for edge in edges:
-        if start_node == edge.start_node:
-            return edge.get_property("policy_name")
-    return []
+def normalize_policy_names(policy_name: object) -> List[str]:
+    if isinstance(policy_name, list):
+        policy_names: List[str] = []
+        for item in policy_name:
+            if not isinstance(item, str):
+                raise TypeError(f"Expected policy_name list values to be strings, got {type(item).__name__}")
+            if item and item not in policy_names:
+                policy_names.append(item)
+        return policy_names
+    if isinstance(policy_name, str):
+        if policy_name:
+            return [policy_name]
+        return []
+    if policy_name is None:
+        return []
+    raise TypeError(f"Expected policy_name to be a string or list of strings, got {type(policy_name).__name__}")
 
 
-def create_edge(graph: OpenGraph, start_node: str, end_node: str, kind: str, properties: Properties):
-    # If an edge already exists, we need to append this policy's name to the edge if not present
-    existing_policy_list = get_edge_policynames(graph, start_node, end_node)
-    if existing_policy_list:
-        policy_name = properties.get_property("policy_name")[0]
-        if policy_name not in existing_policy_list:
-            print("Appending policy " + policy_name + " to start node " + start_node)
-            existing_policy_list.extend(properties.get_property("policy_name"))
-            properties.set_property("policy_name", existing_policy_list)
+def get_rule_policy_names(rule: Rule) -> List[str]:
+    if rule.policy_names:
+        return list(rule.policy_names)
+    return normalize_policy_names(rule.policy_name)
+
+
+def merge_policy_names(existing_policy_names: List[str], incoming_policy_names: List[str]) -> List[str]:
+    merged_policy_names = list(existing_policy_names)
+    for policy_name in incoming_policy_names:
+        if policy_name not in merged_policy_names:
+            merged_policy_names.append(policy_name)
+    return merged_policy_names
+
+
+def get_existing_edge(graph: OpenGraph, start_node: str, end_node: str, kind: str) -> Optional[Tuple[str, Edge]]:
+    for edge_key, edge in graph.edges.items():
+        if edge.start_node == start_node and edge.end_node == end_node and edge.kind == kind:
+            return edge_key, edge
+    return None
+
+
+def create_edge(graph: OpenGraph, start_node: str, end_node: str, kind: str, properties: Properties) -> Edge:
+    existing_edge = get_existing_edge(graph, start_node, end_node, kind)
+    if existing_edge:
+        edge_key, edge = existing_edge
+        existing_policy_names = normalize_policy_names(edge.get_property("policy_name"))
+        incoming_policy_names = normalize_policy_names(properties.get_property("policy_name"))
+        edge.set_property("policy_name", merge_policy_names(existing_policy_names, incoming_policy_names))
+        del graph.edges[edge_key]
+        return edge
 
     return Edge(
         start_node=start_node,
@@ -153,7 +184,7 @@ def add_node_with_endpoint_selector(
         end_node,
         rule.direction.capitalize(),
         Properties(
-            policy_name=[rule.policy_name],
+            policy_name=get_rule_policy_names(rule),
             namespace=rule.namespace
         )
     )
@@ -166,7 +197,7 @@ def add_node_with_endpoint_selector(
         rule.endpoint_selector,
         "EndpointsWithSelector",
         Properties(
-            policy_name=[rule.policy_name],
+            policy_name=get_rule_policy_names(rule),
             namespace=rule.namespace
         )
     )
@@ -300,7 +331,7 @@ def create_bloodhound_graph(
             'key_type': key_type,
             'full_key': rule.key,
             'namespace': rule.namespace,
-            'policy_name': rule.policy_name
+            'policy_name': get_rule_policy_names(rule)
         }
         
         # Add port information if available
@@ -339,7 +370,8 @@ def create_bloodhound_graph(
                     graph.add_node(port_node)
                     to_ports_ids.append(port_node.id)
                     port_rules = port.get('rules')
-                    port_policy_name = port.get('policy_name', rule.policy_name)
+                    port_policy_names = normalize_policy_names(port.get('policy_name', get_rule_policy_names(rule)))
+                    port_policy_name = ",".join(port_policy_names)
                     if port_rules:
                         port_rule_items = port_rules.items() if isinstance(port_rules, dict) else [("rules", port_rules)]
                         # Handle cases where more than one protocol are present
@@ -360,7 +392,7 @@ def create_bloodhound_graph(
                                     name=f"{rule_protocol} rules",
                                     port=f"{port['port']}/{port['protocol']}",
                                     rules=create_port_rules_lines(protocol_port_rules),
-                                    policy_name=[port_policy_name],
+                                    policy_name=port_policy_names,
                                     namespace=rule.namespace
                                 )
                             )
@@ -372,7 +404,7 @@ def create_bloodhound_graph(
                                 port_rules_node_id,
                                 "WithPortRules",
                                 Properties(
-                                    policy_name=[port_policy_name],
+                                    policy_name=port_policy_names,
                                     namespace=rule.namespace
                                 )
                             )
@@ -385,7 +417,7 @@ def create_bloodhound_graph(
                                 port_node.id,
                                 "ToPorts",
                                 Properties(
-                                    policy_name=[port_policy_name],
+                                    policy_name=port_policy_names,
                                     namespace=rule.namespace
                                 )
                             )
@@ -398,7 +430,7 @@ def create_bloodhound_graph(
                             port_node.id,
                             "ToPorts",
                             Properties(
-                                policy_name=[rule.policy_name],
+                                policy_name=port_policy_names,
                                 namespace=rule.namespace
                             )
                         )
@@ -422,7 +454,7 @@ def create_bloodhound_graph(
                 end_node,
                 kind,
                 Properties(
-                    policy_name=[rule.policy_name],
+                    policy_name=get_rule_policy_names(rule),
                     namespace=rule.namespace
                 )
             )
@@ -450,7 +482,7 @@ def create_bloodhound_graph(
                     rule.key,
                     "Egress",
                     Properties(
-                        policy_name=[rule.policy_name],
+                        policy_name=get_rule_policy_names(rule),
                         namespace=rule.namespace
                     )
                 )
@@ -474,7 +506,7 @@ def create_bloodhound_graph(
                     namespace_id,
                     "Ingress",
                     Properties(
-                        policy_name=[rule.policy_name],
+                        policy_name=get_rule_policy_names(rule),
                         namespace=rule.namespace
                     )
                 )
@@ -498,7 +530,7 @@ def create_bloodhound_graph(
                     rule.key,
                     "EgressDeny",
                     Properties(
-                        policy_name=[rule.policy_name],
+                        policy_name=get_rule_policy_names(rule),
                         namespace=rule.namespace
                     )
                 )
@@ -523,7 +555,7 @@ def create_bloodhound_graph(
                     namespace_id,
                     "IngressDeny",
                     Properties(
-                        policy_name=[rule.policy_name],
+                        policy_name=get_rule_policy_names(rule),
                         namespace=rule.namespace
                     )
                 )

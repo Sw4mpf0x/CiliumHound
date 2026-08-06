@@ -36,6 +36,8 @@ python CiliumHound.py ./policies -o cilium_graph.json --debug
 
 The script generates a BloodHound OpenGraph JSON file that can be imported into BloodHound for visualization.
 
+Edges store policy_name as an array containing every policy whose spec creates that edge.
+
 ## Graph Node And Edge Types
 
 ### Node Types

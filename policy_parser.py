@@ -188,10 +188,35 @@ class PolicyParser:
             # seen_ports.add(port_key)
         return Ports(merged_ports)
 
+    def _get_rule_policy_names(self, rule: Rule) -> List[str]:
+        if rule.policy_names:
+            return list(rule.policy_names)
+        if rule.policy_name:
+            return [rule.policy_name]
+        return []
+
+    def _merge_policy_names(self, existing_rule: Rule, incoming_rule: Rule) -> List[str]:
+        policy_names: List[str] = []
+        for policy_name in self._get_rule_policy_names(existing_rule) + self._get_rule_policy_names(incoming_rule):
+            if policy_name not in policy_names:
+                policy_names.append(policy_name)
+        return policy_names
+
+    def _set_rule_policy_name(self, rule: Rule, policy_name: str) -> None:
+        rule.policy_name = policy_name
+        rule.policy_names = [policy_name]
+        if not rule.to_ports:
+            return
+        for port in rule.to_ports.ports:
+            port['policy_name'] = policy_name
+
     def _merge_rule(self, rules: Dict[str, Rule], new_rule: Rule) -> None:
         existing_rule = rules.get(new_rule.key)
         if existing_rule:
             new_rule.to_ports = self._merge_ports(existing_rule.to_ports, new_rule.to_ports)
+            new_rule.policy_names = self._merge_policy_names(existing_rule, new_rule)
+            if new_rule.policy_names:
+                new_rule.policy_name = new_rule.policy_names[-1]
         rules[new_rule.key] = new_rule
 
     def _extract_fqdns(self, spec: Dict[str, Any], rules: Dict[str, Rule], direction: str) -> None:
@@ -518,7 +543,7 @@ class PolicyParser:
         
         for new_rule in new_rules.values():
             new_rule.namespace = namespace
-            new_rule.policy_name = policy_name
+            self._set_rule_policy_name(new_rule, policy_name)
             self._merge_rule(rules, new_rule)
 
 
