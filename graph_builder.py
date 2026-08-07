@@ -171,7 +171,7 @@ def add_node_with_endpoint_selector(
 
     if debug:
         print(f"    [DEBUG] Creating {rule.direction.capitalize()} edge from endpointSelector: {rule.endpoint_selector} to {rule.key}")
-    if rule.direction == "ingress":
+    if rule.direction in ["ingress", "ingressDeny"]:
         start_node = rule.key
         end_node = rule.endpoint_selector
     else:
