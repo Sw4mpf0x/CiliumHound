@@ -26,8 +26,12 @@ class Ports:
     def print(self):
         print(f"Ports: {self.ports}")
 
-def append_key_hash_id(key: str, namespace: str, direction: str, endpoint_selector: str, rules: str = None) -> str:
-    if rules:
+def append_key_hash_id(key: str, namespace: str, direction: str, endpoint_selector: str, tgt_namespace: Optional[str], rules: Optional[object]) -> str:
+    if tgt_namespace and rules:
+        hash_input = f"{namespace}:{direction}:{endpoint_selector}:{tgt_namespace}:{rules}"
+    elif tgt_namespace:
+        hash_input = f"{namespace}:{direction}:{endpoint_selector}:{tgt_namespace}"
+    elif rules:
         hash_input = f"{namespace}:{direction}:{endpoint_selector}:{rules}"
     else:
         hash_input = f"{namespace}:{direction}:{endpoint_selector}"
@@ -70,12 +74,15 @@ class Rule:
             return
         if self.identifier_set:
             self.key = self.key[:-9]
-        if self.properties.get("rules"):
-            self.key = append_key_hash_id(self.key, self.namespace, self.direction, self.endpoint_selector, rules=self.properties.get("rules"))
-            self.identifier_set = True
-        else:
-            self.key = append_key_hash_id(self.key, self.namespace, self.direction, self.endpoint_selector)
-            self.identifier_set = True
+        self.key = append_key_hash_id(
+            self.key,
+            self.namespace,
+            self.direction,
+            self.endpoint_selector,
+            self.tgt_namespace,
+            self.properties.get("rules")
+        )
+        self.identifier_set = True
 
     def print(self):
         print("-" * 80)

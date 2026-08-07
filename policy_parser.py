@@ -63,6 +63,10 @@ class PolicyParser:
 
     def _rule_base_key(self, rule: Rule) -> str:
         return rule.key[:-9] if rule.identifier_set and len(rule.key) > 9 else rule.key
+
+    def _set_rule_tgt_namespace(self, rule: Rule, tgt_namespace: str) -> None:
+        rule.tgt_namespace = tgt_namespace
+        rule.generate_key_identifier()
     
     def _process_labels(self, labels: Dict[str, str], rules: Dict[str, Rule], direction: str, header: str = "label", namespace_key_format: str = "namespace:{value} (byLabel)") -> str:
         """Process matchLabels and extract keys, handling AND relationships"""
@@ -102,7 +106,7 @@ class PolicyParser:
         if decorate_name:
             new_rule.name = f"{new_rule.name} (+)"
         if tgt_namespace:
-            new_rule.tgt_namespace = tgt_namespace
+            self._set_rule_tgt_namespace(new_rule, tgt_namespace)
         rules[new_rule.key] = new_rule
 
         return new_rule.key
@@ -325,7 +329,7 @@ class PolicyParser:
                 new_rule = Rule(direction, namespace_rule.namespace, first_key, 'label', self.endpoint_selector, properties=properties)
                 if decorate_name:
                     new_rule.name += f" (+)"
-                new_rule.tgt_namespace = namespace_rule.key
+                self._set_rule_tgt_namespace(new_rule, namespace_rule.key)
                 rules[new_rule.key] = new_rule
                 return new_rule.key
             # otherwise, update existing and generate a new identifier
@@ -352,7 +356,7 @@ class PolicyParser:
                 new_rule.name = f"{new_rule.name} (+)"
 
             if tgt_namespace:
-                new_rule.tgt_namespace = tgt_namespace
+                self._set_rule_tgt_namespace(new_rule, tgt_namespace)
             rules[new_rule.key] = new_rule
             return new_rule.key
 
