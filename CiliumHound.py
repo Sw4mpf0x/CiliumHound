@@ -47,26 +47,18 @@ def process_policy_file(yaml_file: Path, rules: Dict[str, Rule], debug: bool = F
     
     # Determine namespace
     namespace = extract_namespace_from_policy(policy)
-    if debug:
-        print(f"  [DEBUG] Namespace from policy metadata: {namespace}")
-    if not namespace:
-        namespace = extract_namespace_from_filename(str(yaml_file))
-        if debug:
-            print(f"  [DEBUG] Namespace from filename: {namespace}")
-    
-    policy_name = extract_policy_name_from_filename(str(yaml_file))
-    if debug:
-        print(f"  [DEBUG] Policy name from filename: {policy_name}")
-    if not policy_name:
-        policy_name = extract_policy_name_from_policy(policy)
-        if debug:
-            print(f"  [DEBUG] Policy name from policy metadata: {policy_name}")
-    
     if not namespace:
         print(f"Warning: Could not determine namespace for {yaml_file}")
         return
-    
+
+    policy_name = extract_policy_name_from_policy(policy)
+    if not policy_name:
+        print(f"Warning: Could not determine policy name for {yaml_file}")
+        return
+
     if debug:
+        print(f"  [DEBUG] Namespace from policy metadata: {namespace}")
+        print(f"  [DEBUG] Policy name from policy metadata: {policy_name}")
         print(f"  [DEBUG] Processing policy: {policy_name} in namespace: {namespace}")
     
     # Check for specs
