@@ -13,12 +13,13 @@ pip install -r requirements.txt
 ## Usage
 
 ```bash
-python CiliumHound.py <folder_path> [-o output.json] [-d]
+python CiliumHound.py <policy_path> [-o output.json] [-d]
 ```
 
 ### Arguments
 
-- `folder_path`: Path to the folder containing CiliumNetworkPolicy YAML files
+- `policy_path`: Path to a folder containing CiliumNetworkPolicy YAML/JSON files, or a single YAML/JSON policy file
+- JSON policy files are expected to be Kubernetes `List` objects, with `CiliumNetworkPolicy` resources inside the top-level `items` array
 - `-o, --output`: Output JSON file path (default: `cilium_opengraph.json`)
 - `-d, --debug`: Enable debug mode with verbose output showing each key being added and processing details
 

@@ -2,7 +2,7 @@
 """
 CiliumHound: Convert Cilium Network Policies to BloodHound OpenGraph
 
-This script processes CiliumNetworkPolicy YAML files and converts them
+This script processes CiliumNetworkPolicy YAML and JSON files and converts them
 into a BloodHound OpenGraph JSON file for visualization.
 """
 
@@ -10,7 +10,7 @@ import os
 import sys
 import argparse
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict, List, Tuple
 
 from graph_builder import create_bloodhound_graph
 from models import Rule
@@ -24,6 +24,10 @@ from policy_parser import (
 )
 
 
+SUPPORTED_POLICY_EXTENSIONS: Tuple[str, ...] = ('.yaml', '.yml', '.json')
+JSON_POLICY_EXTENSION = '.json'
+CILIUM_POLICY_KIND = 'CiliumNetworkPolicy'
+
 def parse_bool(value: str) -> bool:
     normalized_value = value.lower()
     if normalized_value in ("true", "1", "yes", "y"):
@@ -33,27 +37,48 @@ def parse_bool(value: str) -> bool:
     raise argparse.ArgumentTypeError("Expected true or false")
 
 
-def process_policy_file(yaml_file: Path, rules: Dict[str, Rule], debug: bool = False) -> None:
+def extract_policies_from_file(policy: Dict[str, Any], policy_file: Path, debug: bool) -> List[Dict[str, Any]]:
     """
-    Process a single YAML policy file and update the rules dictionary.
+    Extract policy documents from a parsed file.
     """
-    print(f"\nProcessing file: {yaml_file}")
-    
-    policy = parse_policy_file(str(yaml_file), debug=debug)
-    if not policy:
-        if debug:
-            print(f"  [DEBUG] Skipping file (could not parse)")
-        return
-    
+    if policy_file.suffix.lower() != JSON_POLICY_EXTENSION:
+        return [policy]
+
+    policy_items = policy.get('items')
+    if not isinstance(policy_items, list):
+        print(f"Warning: JSON policy file {policy_file} does not contain an items array")
+        return []
+
+    policies: List[Dict[str, Any]] = []
+    for item_index, policy_item in enumerate(policy_items):
+        if not isinstance(policy_item, dict):
+            print(f"Warning: JSON policy file {policy_file} item {item_index} is not a policy object")
+            continue
+        policy_kind = policy_item.get('kind')
+        if policy_kind != CILIUM_POLICY_KIND:
+            print(f"Warning: JSON policy file {policy_file} item {item_index} is not a {CILIUM_POLICY_KIND}: kind={policy_kind!r}")
+            continue
+        policies.append(policy_item)
+
+    if debug:
+        print(f"  [DEBUG] Found {len(policies)} policy item(s) in JSON list")
+
+    return policies
+
+
+def process_policy(policy: Dict[str, Any], policy_file: Path, rules: Dict[str, Rule], debug: bool) -> None:
+    """
+    Process a single parsed policy document and update the rules dictionary.
+    """
     # Determine namespace
     namespace = extract_namespace_from_policy(policy)
     if not namespace:
-        print(f"Warning: Could not determine namespace for {yaml_file}")
+        print(f"Warning: Could not determine namespace for {policy_file}")
         return
 
     policy_name = extract_policy_name_from_policy(policy)
     if not policy_name:
-        print(f"Warning: Could not determine policy name for {yaml_file}")
+        print(f"Warning: Could not determine policy name for {policy_file}")
         return
 
     if debug:
@@ -62,17 +87,21 @@ def process_policy_file(yaml_file: Path, rules: Dict[str, Rule], debug: bool = F
         print(f"  [DEBUG] Processing policy: {policy_name} in namespace: {namespace}")
     
     # Check for specs
-    specs = []
+    specs: List[Dict[str, Any]] = []
     if 'specs' in policy:
-        specs = policy.get('specs')
+        policy_specs = policy.get('specs')
+        if isinstance(policy_specs, list):
+            specs.extend(policy_specs)
     if 'spec' in policy:
-        specs.append(policy.get('spec'))
+        policy_spec = policy.get('spec')
+        if isinstance(policy_spec, dict):
+            specs.append(policy_spec)
     
     if debug:
         print(f"  [DEBUG] Found {len(specs)} spec(s)")
 
     if not specs:
-        print(f"Warning: No specs found in {yaml_file}")
+        print(f"Warning: No specs found in {policy_file}")
         return
     
     # Process spec
@@ -80,51 +109,73 @@ def process_policy_file(yaml_file: Path, rules: Dict[str, Rule], debug: bool = F
         # Process Egress
         parser = PolicyParser(debug=debug)
         parser.process_spec(spec, namespace, policy_name, rules)
-    
-    print(f"Found this many rules: {len(rules)}")
 
+
+def process_policy_file(policy_file: Path, rules: Dict[str, Rule], debug: bool = False) -> None:
+    """
+    Process a single policy file and update the rules dictionary.
+    """
+    print(f"\nProcessing file: {policy_file}")
+    
+    parsed_policy = parse_policy_file(str(policy_file), debug=debug)
+    if not parsed_policy:
+        if debug:
+            print(f"  [DEBUG] Skipping file (could not parse)")
+        return
+
+    policies = extract_policies_from_file(parsed_policy, policy_file, debug)
+    if not policies:
+        return
+
+    for policy in policies:
+        process_policy(policy, policy_file, rules, debug)
+
+    print(f"Found this many rules: {len(rules)}")
 
 def process_policies(path: str, debug: bool = False) -> Dict[str, Rule]:
     """
-    Process YAML files from a folder or a single file and extract rules.
+    Process YAML and JSON policy files from a folder or a single file and extract rules.
     Returns: Dict mapping rule key -> Rule
     """
     rules: Dict[str, Rule] = {}
+    policy_files: List[Path] = []
     
     path_obj = Path(path)
     
     # Determine if path is a file or directory
     if path_obj.is_file():
         # Single file
-        if path_obj.suffix.lower() not in ['.yaml', '.yml']:
-            print(f"Warning: {path} is not a YAML file (.yaml or .yml)")
+        if path_obj.suffix.lower() not in SUPPORTED_POLICY_EXTENSIONS:
+            print(f"Warning: {path} is not a supported policy file (.yaml, .yml, or .json)")
             return rules
-        yaml_files = [path_obj]
+        policy_files = [path_obj]
         print(f"Processing single policy file: {path}")
     elif path_obj.is_dir():
-        # Directory - get all YAML files
-        yaml_files = list(path_obj.glob("*.yaml")) + list(path_obj.glob("*.yml"))
-        print(f"Found {len(yaml_files)} YAML files in {path}")
+        # Directory - get all supported policy files
+        policy_files = sorted(
+            policy_file
+            for policy_file in path_obj.iterdir()
+            if policy_file.is_file() and policy_file.suffix.lower() in SUPPORTED_POLICY_EXTENSIONS
+        )
+        print(f"Found {len(policy_files)} policy files in {path}")
         if debug:
-            for yf in yaml_files:
-                print(f"  [DEBUG]  File Found: {yf}")
+            for policy_file in policy_files:
+                print(f"  [DEBUG]  File Found: {policy_file}")
     else:
         print(f"Error: {path} is not a valid file or directory")
         return rules
     
-    if not yaml_files:
-        print(f"Warning: No YAML files found in {path}")
+    if not policy_files:
+        print(f"Warning: No policy files found in {path}")
         return rules
     
     # Process each file
-    for yaml_file in yaml_files:
+    for policy_file in policy_files:
         if debug:
-            print(f"  [DEBUG] Processing policy file: {yaml_file}")
-        process_policy_file(yaml_file, rules, debug=debug)
+            print(f"  [DEBUG] Processing policy file: {policy_file}")
+        process_policy_file(policy_file, rules, debug=debug)
 
     return rules
-
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -132,7 +183,7 @@ def main():
     )
     parser.add_argument(
         "path",
-        help="Path to a folder containing CiliumNetworkPolicy YAML files or a single YAML policy file"
+        help="Path to a folder containing CiliumNetworkPolicy YAML/JSON files or a single policy file"
     )
     parser.add_argument(
         "-o", "--output",

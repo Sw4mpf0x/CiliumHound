@@ -1,10 +1,11 @@
 """
-Policy Parser: Parses Cilium Network Policy YAML files
+Policy Parser: Parses Cilium Network Policy YAML and JSON files
 
 This module handles parsing and extracting information from CiliumNetworkPolicy
-YAML files, including namespaces, policy names, ports, and keys.
+YAML and JSON files, including namespaces, policy names, ports, and keys.
 """
 
+import json
 import os
 import yaml
 import random
@@ -14,7 +15,7 @@ from typing import Dict, List, Set, Any, Optional, Tuple
 from models import Rule, Ports, append_key_hash_id
 
 class PolicyParser:
-    """Parser for Cilium Network Policy YAML files"""
+    """Parser for Cilium Network Policy YAML and JSON files"""
     
     NAMESPACE_LABEL_KEY = 'k8s:io.kubernetes.pod.namespace'
     namespace = ""
@@ -455,28 +456,46 @@ class PolicyParser:
         return rules
 
     def parse_policy_file(self, filepath: str) -> Optional[Dict[str, Any]]:
-        """Parse a CiliumNetworkPolicy YAML file"""
+        """Parse a CiliumNetworkPolicy YAML or JSON file"""
         print(f"Parsing file: {filepath}")
+        file_extension = os.path.splitext(filepath)[1].lower()
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 content = f.read()
-                # Try to parse as standard YAML
-                try:
-                    policy = yaml.safe_load(content)
-                    if policy and isinstance(policy, dict):
-                        if self.debug:
-                            print(f"  [DEBUG] Successfully parsed YAML. Keys: {list(policy.keys())}")
-                        return policy
-                except yaml.YAMLError as e:
-                    # If it fails, it might be in kubectl describe format
-                    # For now, we'll skip those or try to parse them differently
-                    if self.debug:
-                        print(f"  [DEBUG] YAML parse error: {e}")
-                    pass
-        except Exception as e:
-            print(f"Warning: Could not parse {filepath}: {e}")
+        except OSError as e:
+            print(f"Warning: Could not read {filepath}: {e}")
             if self.debug:
-                print(f"  [DEBUG] Exception details: {type(e).__name__}: {e}")
+                print(f"  [DEBUG] Read error: {type(e).__name__}: {e}")
+            return None
+
+        try:
+            if file_extension == '.json':
+                policy = json.loads(content)
+                policy_format = 'JSON'
+            elif file_extension in ('.yaml', '.yml'):
+                policy = yaml.safe_load(content)
+                policy_format = 'YAML'
+            else:
+                print(f"Warning: Unsupported policy file extension for {filepath}: {file_extension}")
+                return None
+        except json.JSONDecodeError as e:
+            print(f"Warning: Could not parse JSON policy file {filepath}: line {e.lineno} column {e.colno}: {e.msg}")
+            if self.debug:
+                print(f"  [DEBUG] JSON parse error: {e}")
+            return None
+        except yaml.YAMLError as e:
+            print(f"Warning: Could not parse YAML policy file {filepath}: {e}")
+            if self.debug:
+                print(f"  [DEBUG] YAML parse error: {e}")
+            return None
+
+        if policy and isinstance(policy, dict):
+            if self.debug:
+                print(f"  [DEBUG] Successfully parsed {policy_format}. Keys: {list(policy.keys())}")
+            return policy
+
+        if self.debug:
+            print(f"  [DEBUG] Parsed {policy_format} did not contain a policy object: {type(policy).__name__}")
         return None
 
     def process_rules(self, policy_rules: List[Dict[str, Any]], direction: str, rules: Dict[str, Rule]) -> None:
@@ -582,7 +601,7 @@ def extract_port_info_from_toPorts(toPorts: List[Dict[str, Any]]) -> Ports:
 
 
 def parse_policy_file(filepath: str, debug: bool = False) -> Optional[Dict[str, Any]]:
-    """Parse a CiliumNetworkPolicy YAML file"""
+    """Parse a CiliumNetworkPolicy YAML or JSON file"""
     parser = PolicyParser(debug=debug)
     return parser.parse_policy_file(filepath)
 
