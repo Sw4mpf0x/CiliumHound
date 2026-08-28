@@ -52,6 +52,7 @@ DEFAULT_CUSTOM_NODE_ICONS: list[tuple[str, str, str]] = [
     ("Entity", "id-badge", "#16A9F2"),
     ("CIDR", "arrow-down-1-9", "#AEC5EB"),
     ("CIDRSet", "arrow-down-1-9", "#AEC5EB"),
+    ("Service", "server", "#FE61CF"),
     ("EndpointSelector", "crosshairs", "#D8A7CA"),
     ("PortRules", "gavel", "#DA4A4A"),
 ]
