@@ -1,0 +1,1 @@
+{"query":"MATCH p = ()-[]-()\nRETURN p\nLIMIT 1000","name":"Cilium All","description":"Show the entire Cilium graph"}

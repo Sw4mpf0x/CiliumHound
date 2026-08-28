@@ -1,0 +1,29 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: payments-to-management-breakglass
+  namespace: payments
+  annotations:
+    ciliumhound.example/finding: isolated-namespace-access-to-specific-management-pod
+  labels:
+    ciliumhound.example/purpose: breakglass-egress
+specs:
+- description: Permit the fraud worker to reach the specific breakglass console pod in management.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: fraud-worker
+      access.int.example.com/breakglass: required
+      incident-response: approved
+      environment: prod
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        "k8s:io.kubernetes.pod.namespace": management
+        app.kubernetes.io/name: breakglass-console
+        app.kubernetes.io/component: shell
+        statefulset.kubernetes.io/pod-name: breakglass-console-0
+        environment: prod
+    toPorts:
+    - ports:
+      - port: "2222"
+        protocol: TCP

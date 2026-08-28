@@ -1,0 +1,41 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: records-archive-egress
+  namespace: records
+  labels:
+    ciliumhound.example/purpose: archive-egress
+spec:
+  description: Allow records archiver to reach storage endpoints while denying cloud metadata.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: records-archiver
+      app.kubernetes.io/component: worker
+      incident-response: approved
+      environment: prod
+  egress:
+  - toFQDNs:
+    - matchPattern: "*.s3.us-west-2.amazonaws.com"
+    toPorts:
+    - ports:
+      - port: "443"
+        protocol: TCP
+  - toCIDRSet:
+    - cidr: 10.120.34.0/24
+    toPorts:
+    - ports:
+      - port: "443"
+        protocol: TCP
+  - toEntities:
+    - host
+    - remote-node
+    toPorts:
+    - ports:
+      - port: "8053"
+        protocol: ANY
+      rules:
+        dns:
+        - matchPattern: "*.s3.us-west-2.amazonaws.com"
+  egressDeny:
+  - toCIDRSet:
+    - cidr: 169.254.169.254/32

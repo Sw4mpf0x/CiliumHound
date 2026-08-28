@@ -1,0 +1,1 @@
+{"query":"MATCH p = ()-[e]-()\nWHERE e.namespace = '\u003cnamespace_here\u003e'\nRETURN p\nLIMIT 1000","name":"Cilium Namespace - Full","description":"Return all nodes and edges, ingess and egress, for a specified namespace"}

@@ -1,0 +1,1 @@
+{"query":"MATCH p = (:Namespace)\nRETURN p\nLIMIT 1000","name":"Cilium Nodes - Namespace","description":""}

@@ -1,0 +1,55 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: management-breakglass-ingress-from-isolated
+  namespace: management
+  annotations:
+    ciliumhound.example/finding: isolated-namespace-access-to-specific-management-pod
+  labels:
+    ciliumhound.example/purpose: breakglass
+spec:
+  description: Allow a narrow set of isolated workloads to reach the breakglass console pod.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: breakglass-console
+      app.kubernetes.io/component: shell
+      statefulset.kubernetes.io/pod-name: breakglass-console-0
+      environment: prod
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        "k8s:io.kubernetes.pod.namespace": payments
+        app.kubernetes.io/name: fraud-worker
+        incident-response: approved
+        environment: prod
+      matchExpressions:
+      - key: access.int.example.com/breakglass
+        operator: In
+        values:
+        - required
+    toPorts:
+    - ports:
+      - port: "2222"
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        "k8s:io.kubernetes.pod.namespace": records
+        app.kubernetes.io/name: records-archiver
+        incident-response: approved
+        environment: prod
+      matchExpressions:
+      - key: access.int.example.com/breakglass
+        operator: In
+        values:
+        - required
+    toPorts:
+    - ports:
+      - port: "2222"
+        protocol: TCP
+  ingressDeny:
+  - fromCIDRs:
+    - 0.0.0.0/0
+    toPorts:
+    - ports:
+      - port: "2222"
+        protocol: TCP

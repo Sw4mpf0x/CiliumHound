@@ -1,0 +1,31 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: payments-vendor-full-egress
+  namespace: payments
+  annotations:
+    ciliumhound.example/finding: full-egress-to-specific-external-url
+  labels:
+    ciliumhound.example/purpose: external-egress
+spec:
+  description: Intentionally broad egress to a single backup vendor FQDN for graph-finding demonstrations.
+  endpointSelector: {}
+  egress:
+  - toFQDNs:
+    - matchName: uploads.backup-vendor.example.com
+  - toEntities:
+    - host
+    - remote-node
+    toPorts:
+    - ports:
+      - port: "8053"
+        protocol: ANY
+      rules:
+        dns:
+        - matchName: uploads.backup-vendor.example.com
+        - matchPattern: "*.backup-vendor.example.com"
+  egressDeny:
+  - toCIDRSet:
+    - cidr: 169.254.169.254/32
+  - toCIDR:
+    - 100.64.0.0/10

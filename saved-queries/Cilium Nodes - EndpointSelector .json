@@ -1,0 +1,1 @@
+{"query":"MATCH p = (:EndpointSelector)\nRETURN p\nLIMIT 1000","name":"Cilium Nodes - EndpointSelector ","description":"List all EndpointSelector nodes"}

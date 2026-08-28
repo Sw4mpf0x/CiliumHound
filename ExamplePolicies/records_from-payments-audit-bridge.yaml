@@ -1,0 +1,41 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: records-from-payments-audit-bridge
+  namespace: records
+  annotations:
+    ciliumhound.example/finding: isolated-namespace-bridge-by-label-combination
+  labels:
+    ciliumhound.example/purpose: cross-isolated-bridge
+specs:
+- description: Accept audit writes only from the payments reconciler with matching finance-review labels.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: audit-api
+      app.kubernetes.io/component: api
+      access.int.example.com/bridge: finance-review
+      data-classification: restricted
+      environment: prod
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        "k8s:io.kubernetes.pod.namespace": payments
+        app.kubernetes.io/name: txn-reconciler
+        app.kubernetes.io/component: worker
+        access.int.example.com/bridge: finance-review
+        environment: prod
+      matchExpressions:
+      - key: app.kubernetes.io/part-of
+        operator: In
+        values:
+        - payment-platform
+    toPorts:
+    - ports:
+      - port: "8443"
+        protocol: TCP
+      rules:
+        http:
+        - method: POST
+          path: /v1/audit-events
+        - method: GET
+          path: /v1/reconciliation/status

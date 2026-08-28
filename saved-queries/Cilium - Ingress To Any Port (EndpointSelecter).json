@@ -1,0 +1,1 @@
+{"query":"MATCH p = (n:Namespace)-[:EndpointsWithSelector]-\u003e(s)\u003c-[:Ingress]-(f)\nWHERE NOT (f)-[:ToPorts]-\u003e(:Port)\nRETURN p\nLIMIT 1000","name":"Cilium - Ingress To Any Port (EndpointSelecter)","description":"Ingress to endpoint selectors to any TCP/UDP port"}

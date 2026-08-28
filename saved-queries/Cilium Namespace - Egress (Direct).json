@@ -1,0 +1,1 @@
+{"query":"WITH '\u003cnamespace_here\u003e' as namespace\nMATCH p = (n :Namespace)-[e]-\u003e()-[*0..3]-\u003e()\nWHERE type(e) IN ['Egress', 'EgressDeny']\nAND n.displayname = namespace\nRETURN p\nLIMIT 1000","name":"Cilium Namespace - Egress (Direct)","description":"Direct egress (i.e., no endpoint selectors) for a specific namespace"}

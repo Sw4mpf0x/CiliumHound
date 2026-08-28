@@ -1,0 +1,47 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: records-management-ingress
+  namespace: records
+  labels:
+    ciliumhound.example/purpose: isolated-management-ingress
+spec:
+  description: Allow only privileged management namespace tools into selected records workloads.
+  endpointSelector:
+    matchLabels:
+      access.int.example.com/managed-by: ops-gateway
+      environment: prod
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        "k8s:io.kubernetes.pod.namespace": management
+        app.kubernetes.io/name: ops-gateway
+        access.int.example.com/tier: privileged-admin
+        environment: prod
+      matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+        - console
+        - automation-runner
+    toPorts:
+    - ports:
+      - port: "9443"
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        "k8s:io.kubernetes.pod.namespace": management
+        app.kubernetes.io/name: observability-controller
+        app.kubernetes.io/component: telemetry
+        environment: prod
+    toPorts:
+    - ports:
+      - port: "9090"
+        protocol: TCP
+  ingressDeny:
+  - fromCIDRs:
+    - 10.60.0.0/16
+    toPorts:
+    - ports:
+      - port: "9443"
+        protocol: TCP

@@ -1,0 +1,17 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: records-namespace-ingress-deny
+  namespace: records
+  labels:
+    ciliumhound.example/purpose: namespace-deny-coverage
+spec:
+  description: Deny direct ingress from the corporate branch CIDR to every records endpoint.
+  endpointSelector: {}
+  ingressDeny:
+  - fromCIDRs:
+    - 172.20.40.0/24
+    toPorts:
+    - ports:
+      - port: "9443"
+        protocol: TCP

@@ -1,0 +1,43 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: payments-management-ingress
+  namespace: payments
+  labels:
+    ciliumhound.example/purpose: isolated-management-ingress
+spec:
+  description: Allow only privileged management namespace tools into selected payments workloads.
+  endpointSelector:
+    matchLabels:
+      access.int.example.com/managed-by: ops-gateway
+      environment: prod
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        "k8s:io.kubernetes.pod.namespace": management
+        app.kubernetes.io/name: ops-gateway
+        access.int.example.com/tier: privileged-admin
+        environment: prod
+      matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+        - console
+        - automation-runner
+    toPorts:
+    - ports:
+      - port: "8443"
+        protocol: TCP
+  - fromEntities:
+    - kube-apiserver
+    toPorts:
+    - ports:
+      - port: "10250"
+        protocol: TCP
+  ingressDeny:
+  - fromCIDRs:
+    - 10.60.0.0/16
+    toPorts:
+    - ports:
+      - port: "8443"
+        protocol: TCP

@@ -1,0 +1,1 @@
+{"query":"MATCH p = (n)\nWHERE n.primarykind IN ['FQDN', 'FQDN-Pattern']\nRETURN p\nLIMIT 1000","name":"Cilium Nodes - FQDN ","description":"List all FQDN and FQDN-Pattern nodes"}

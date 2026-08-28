@@ -1,0 +1,1 @@
+{"query":"WITH '\u003cnamespace_here\u003e' as namespace\nMATCH p = (n :Namespace)\u003c-[*1..3]-()\nWHERE n.displayname = namespace\nRETURN p\nLIMIT 1000","name":"Cilium Namespace - Ingress (Direct)","description":"Direct ingress (i.e., no endpoint selectors) for a specific namespace"}

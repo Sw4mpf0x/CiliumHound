@@ -1,0 +1,54 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: management-observability-egress
+  namespace: management
+  labels:
+    ciliumhound.example/purpose: observability
+spec:
+  description: Allow observability collectors to scrape isolated workloads and publish to the in-namespace collector service.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: observability-controller
+      app.kubernetes.io/component: telemetry
+      environment: prod
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        "k8s:io.kubernetes.pod.namespace": payments
+        app.kubernetes.io/name: txn-api
+        observability: enabled
+      matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+        - api
+        - worker
+    - matchLabels:
+        "k8s:io.kubernetes.pod.namespace": records
+        app.kubernetes.io/name: records-api
+        observability: enabled
+      matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values:
+        - api
+        - worker
+    toPorts:
+    - ports:
+      - port: "9090"
+        protocol: TCP
+  - toServices:
+    - k8sService:
+        serviceName: telemetry-collector
+        namespace: management
+    toPorts:
+    - ports:
+      - port: "4317"
+        protocol: TCP
+  - toEntities:
+    - kube-apiserver
+    toPorts:
+    - ports:
+      - port: "6443"
+        protocol: TCP

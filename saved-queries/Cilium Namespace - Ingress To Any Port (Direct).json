@@ -1,0 +1,1 @@
+{"query":"WITH '\u003cnamespace_here\u003e' as namespace\nMATCH p = (n:Namespace)-[:Ingress]-\u003e(f)\nWHERE n.displayname = namespace\n  AND NOT (f)-[:ToPorts]-\u003e(:Port)\nRETURN p\nLIMIT 1000","name":"Cilium Namespace - Ingress To Any Port (Direct)","description":"Direct ingress (i.e., no endpoint selectors) to any TCP/UDP port for a specific namespace"}

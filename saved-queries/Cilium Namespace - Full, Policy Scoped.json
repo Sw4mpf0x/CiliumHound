@@ -1,0 +1,1 @@
+{"query":"WITH '\u003cpolicy_here\u003e' AS policyName, '\u003cnamespace_here\u003e' as namespace\nMATCH p = ()-[e]-()\nWHERE e.namespace = namespace\nAND e.policy_name contains policyName\nRETURN p\nLIMIT 1000","name":"Cilium Namespace - Full, Policy Scoped","description":"Return all nodes and edges, ingess and egress, for a specified namespace and policy"}

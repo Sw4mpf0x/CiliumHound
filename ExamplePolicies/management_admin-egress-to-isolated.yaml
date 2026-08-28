@@ -1,0 +1,57 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: management-admin-egress-to-isolated
+  namespace: management
+  labels:
+    ciliumhound.example/purpose: management-access
+specs:
+- description: Allow privileged management tools to reach selected workloads in isolated namespaces.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: ops-gateway
+      access.int.example.com/tier: privileged-admin
+      environment: prod
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        "k8s:io.kubernetes.pod.namespace": payments
+        app.kubernetes.io/name: txn-api
+        app.kubernetes.io/component: api
+        environment: prod
+      matchExpressions:
+      - key: access.int.example.com/managed-by
+        operator: In
+        values:
+        - ops-gateway
+    toPorts:
+    - ports:
+      - port: "8443"
+        protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: /healthz
+        - method: POST
+          path: /admin/reconcile
+  - toEndpoints:
+    - matchLabels:
+        "k8s:io.kubernetes.pod.namespace": records
+        app.kubernetes.io/name: records-api
+        app.kubernetes.io/component: api
+        environment: prod
+      matchExpressions:
+      - key: access.int.example.com/managed-by
+        operator: In
+        values:
+        - ops-gateway
+    toPorts:
+    - ports:
+      - port: "9443"
+        protocol: TCP
+      rules:
+        http:
+        - method: GET
+          path: /internal/status
+        - method: POST
+          path: /internal/maintenance

@@ -1,0 +1,1 @@
+{"query":"WITH '\u003cnamespace_here\u003e' as namespace\nMATCH p = (n :Namespace)-[:EndpointsWithSelector]-\u003e(s)-[f *0..3]-\u003e()\nWHERE n.displayname = namespace\nRETURN p\nLIMIT 1000","name":"Cilium Namespace - Egress (EndpointSelector)","description":"Egress from endpoint selectors for a specific namespace"}

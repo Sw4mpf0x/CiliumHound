@@ -1,0 +1,41 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: payments-to-records-audit-bridge
+  namespace: payments
+  annotations:
+    ciliumhound.example/finding: isolated-namespace-bridge-by-label-combination
+  labels:
+    ciliumhound.example/purpose: cross-isolated-bridge
+spec:
+  description: Allow payments reconciliation to call the records audit API only with the finance-review bridge labels.
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: txn-reconciler
+      app.kubernetes.io/component: worker
+      access.int.example.com/bridge: finance-review
+      environment: prod
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        "k8s:io.kubernetes.pod.namespace": records
+        app.kubernetes.io/name: audit-api
+        app.kubernetes.io/component: api
+        access.int.example.com/bridge: finance-review
+        data-classification: restricted
+        environment: prod
+      matchExpressions:
+      - key: app.kubernetes.io/part-of
+        operator: In
+        values:
+        - audit-platform
+    toPorts:
+    - ports:
+      - port: "8443"
+        protocol: TCP
+      rules:
+        http:
+        - method: POST
+          path: /v1/audit-events
+        - method: GET
+          path: /v1/reconciliation/status
