@@ -155,6 +155,17 @@ def create_edge(graph: OpenGraph, start_node: str, end_node: str, kind: str, pro
     )
 
 
+def normalize_direction(direction: str):
+    if direction in ["egress", "ingress"]:
+        return direction.capitalize()
+    elif direction == "egressDeny":
+        return "EgressDeny"
+    elif direction == "ingessDeny":
+        return "IngressDeny"
+    else:
+        return direction
+
+
 def add_node_with_endpoint_selector(
     graph: OpenGraph,
     rule: Rule,
@@ -168,9 +179,10 @@ def add_node_with_endpoint_selector(
     Returns False if the endpoint selector node could not be added; the caller
     should skip the rest of processing for this rule.
     """
+    direction = normalize_direction(rule.direction)
 
     if debug:
-        print(f"    [DEBUG] Creating {rule.direction.capitalize()} edge from endpointSelector: {rule.endpoint_selector} to {rule.key}")
+        print(f"    [DEBUG] Creating {direction} edge from endpointSelector: {rule.endpoint_selector} to {rule.key}")
     if rule.direction in ["ingress", "ingressDeny"]:
         start_node = rule.key
         end_node = rule.endpoint_selector
@@ -182,14 +194,14 @@ def add_node_with_endpoint_selector(
         graph,
         start_node,
         end_node,
-        rule.direction.capitalize(),
+        direction,
         Properties(
             policy_name=get_rule_policy_names(rule),
             namespace=rule.namespace
         )
     )
     if not graph.add_edge(endpoint_selector_edge):
-        print(f"    [ERROR] Failed to add {rule.direction.capitalize()} edge: {rule.endpoint_selector} -> {rule.key}")
+        print(f"    [ERROR] Failed to add {direction} edge: {rule.endpoint_selector} -> {rule.key}")
 
     namespace_edge = create_edge(
         graph,
@@ -201,8 +213,11 @@ def add_node_with_endpoint_selector(
             namespace=rule.namespace
         )
     )
-    if not graph.add_edge(namespace_edge) and debug:
+    
+    if not graph.add_edge(namespace_edge):
         print(f"    [WARNING] Failed to add EndpointsWithSelector edge: {namespace_id} -> {rule.endpoint_selector}")
+    elif debug:
+        print(f" [DEBUG] Added EndpointsWithSelector edge: {namespace_id} -> {rule.endpoint_selector}")
     return True
 
 
