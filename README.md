@@ -110,19 +110,19 @@ Run `python helper-scripts/bloodhound_helper.py --help` or `python helper-script
 
 ```bash
 # Ingest the graph produced by CiliumHound.py
-python helper-scripts/bloodhound_helper.py ingest cilium_opengraph.json --verbose
+python3 helper-scripts/bloodhound_helper.py ingest cilium_opengraph.json --verbose
 
 # Clear CE data for a named source kind (matches older Tailscale-focused helpers)
-python helper-scripts/bloodhound_helper.py clear-database --source-kind-name TS_Base
+python3 helper-scripts/bloodhound_helper.py clear-database --source-kind-name TS_Base
 
 # Replace your saved queries from a directory of JSON definitions
-python helper-scripts/bloodhound_helper.py upload-queries --folder ./saved-queries
+python3 helper-scripts/bloodhound_helper.py upload-queries --folder ./saved-queries
 
 # Upload extension schema (path relative to your current working directory)
-python helper-scripts/bloodhound_helper.py upload-schema --file ./schema.json
+python3 helper-scripts/bloodhound_helper.py upload-schema --file ./schema.json
 
 # Push default CiliumHound icons (add --insecure if you use plain HTTP to localhost)
-python helper-scripts/bloodhound_helper.py push-icons
+python3 helper-scripts/bloodhound_helper.py push-icons
 ```
 
 ## Supported Cilium Policy Fields
