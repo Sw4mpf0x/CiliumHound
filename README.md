@@ -7,13 +7,13 @@ Convert Kubernetes Cilium Network Policies to OpenGraph JSON BloodHound ingestio
 Install the required dependencies:
 
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 ```
 
 ## Usage
 
 ```bash
-python CiliumHound.py <policy_path> [-o output.json] [-d]
+python3 CiliumHound.py <policy_path> [-o output.json] [-d]
 ```
 
 ### Arguments
@@ -27,10 +27,10 @@ python CiliumHound.py <policy_path> [-o output.json] [-d]
 
 ```bash
 # Basic usage
-python CiliumHound.py ./policies -o cilium_graph.json
+python3 CiliumHound.py ./policies -o cilium_graph.json
 
 # With debug mode
-python CiliumHound.py ./policies -o cilium_graph.json --debug
+python3 CiliumHound.py ./policies -o cilium_graph.json --debug
 ```
 
 ## Output
@@ -79,7 +79,7 @@ The script [`helper-scripts/bloodhound_helper.py`](helper-scripts/bloodhound_hel
 ### Installing helper dependencies
 
 ```bash
-pip install -r helper-scripts/requirements.txt
+pip3 install -r helper-scripts/requirements.txt
 ```
 
 ### Authentication
