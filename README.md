@@ -1,6 +1,7 @@
 # CiliumHound
 
 Convert Kubernetes Cilium Network Policies to OpenGraph JSON BloodHound ingestion.
+Blog post: https://specterops.io/blog/2026/09/17/ciliumhound-graphing-kubernetes-network-policies/
 
 ## Installation
 
